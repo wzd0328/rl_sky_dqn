@@ -7,6 +7,8 @@ import torch
 import numpy as np
 from DQN_agent import DQN
 import matplotlib.pyplot as plt
+import pygame
+from human_player import HumanPlayer
 
 def process_img(image):
     """处理图像为84x84的二值图"""
@@ -279,6 +281,106 @@ def demo_play(arg, agent, env):
     if restart == 'y':
         demo_play(arg, agent, env)
 
+def human_play_mode(env):
+    """人工玩法模式"""
+    # 创建人工玩家
+    human_player = HumanPlayer()
+    
+    # 重置环境
+    reset_result = env.reset()
+    if isinstance(reset_result, tuple):
+        raw_frame, info = reset_result
+    else:
+        raw_frame, info = reset_result, {}
+    
+    done = False
+    total_reward = 0
+    step_count = 0
+    
+    try:
+        while True:
+            # 处理退出事件
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    return
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        print("游戏退出")
+                        return
+                    elif event.key == pygame.K_r and done:
+                        # 重新开始游戏
+                        reset_result = env.reset()
+                        if isinstance(reset_result, tuple):
+                            raw_frame, info = reset_result
+                        else:
+                            raw_frame, info = reset_result, {}
+                        human_player.reset()
+                        done = False
+                        total_reward = 0
+                        step_count = 0
+                        print("游戏重新开始!")
+            
+            if not done:
+                # 获取人工玩家动作
+                action = human_player.get_action_from_keyboard()
+                
+                # 执行动作
+                step_result = env.step(action)
+                if len(step_result) == 5:
+                    next_frame, reward, terminated, truncated, info = step_result
+                    done = terminated or truncated
+                else:
+                    next_frame, reward, done, info = step_result
+                
+                total_reward += reward
+                step_count += 1
+                
+                # 显示实时信息
+                if step_count % 50 == 0:
+                    print(f"得分: {total_reward:.1f}, 速度: {info.get('speed', 0):.1f}")
+                
+                # 限制最大步数
+                if step_count > 5000:
+                    done = True
+            else:
+                # 游戏结束显示
+                print(f"游戏结束! 最终得分: {total_reward}")
+                print("按R键重新开始，按ESC键退出")
+                
+                # 等待重新开始或退出
+                waiting = True
+                while waiting and not done:
+                    for event in pygame.event.get():
+                        if event.type == pygame.QUIT:
+                            waiting = False
+                        elif event.type == pygame.KEYDOWN:
+                            if event.key == pygame.K_r:
+                                reset_result = env.reset()
+                                if isinstance(reset_result, tuple):
+                                    raw_frame, info = reset_result
+                                else:
+                                    raw_frame, info = reset_result, {}
+                                human_player.reset()
+                                done = False
+                                total_reward = 0
+                                step_count = 0
+                                waiting = False
+                                print("游戏重新开始!")
+                            elif event.key == pygame.K_ESCAPE:
+                                waiting = False
+                    
+                    # 继续渲染
+                    env.render()
+                
+            # 渲染游戏
+            env.render()
+            time.sleep(0.1)  # 控制游戏速度
+            
+    except KeyboardInterrupt:
+        print("游戏退出")
+    finally:
+        env.close()
+
 def test_with_display(arg, agent):
     """带窗口显示的测试模式"""
     load_state(arg, agent)
@@ -340,7 +442,7 @@ def test_with_display(arg, agent):
 if __name__ == '__main__':
     # 选择模式
     # 初始化环境和智能体 - 训练时不需要窗口，测试和演示时需要
-    mode = input("选择模式 (1-训练, 2-测试, 3-演示): ").strip()
+    mode = input("选择模式 (1-训练, 2-测试, 3-演示, 4-游玩): ").strip()
     arg = params()
     if mode == "1":
         print("开始训练模式...")
@@ -359,6 +461,10 @@ if __name__ == '__main__':
         env = make_skiing_env("Skiing-rgb-v0", render_mode="human", debug=True)
         agent = DQN(env, arg)
         demo_play(arg, agent, env)
+    elif mode == "4":
+        print("人工玩家模式...")
+        env = make_skiing_env("Skiing-rgb-v0", render_mode="human", debug=True)
+        human_play_mode(env)
     else:
         print("开始训练模式...")
         # 训练模式：使用rgb_array模式提高效率
