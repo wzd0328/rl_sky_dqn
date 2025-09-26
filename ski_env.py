@@ -1,8 +1,3 @@
-#
-# 滑雪小游戏环境（RGB图像版本）
-# 返回RGB图像作为观测值，适合用于视觉输入的强化学习算法
-#
-
 from enum import IntEnum
 from typing import Dict, Optional, Tuple, Union
 import gymnasium
@@ -23,7 +18,7 @@ MAX_PLAYER_SPEED = 10
 ACCELERATION_RATE = 0.001
 OBSTACLE_GENERATION_RATE_INITIAL = 0.02
 OBSTACLE_GENERATION_RATE_MAX = 0.1
-OBSTACLE_VEL_Y = 3
+# OBSTACLE_VEL_Y = 3
 PLAYER_ANGLE_CHANGE = 15  # 角度变化量
 
 # 颜色定义
@@ -118,17 +113,15 @@ class SkiingRGBEnv(gymnasium.Env):
         elif action == Actions.RIGHT_45:
             self._player_angle = 45
         
-        # 根据角度计算水平移动和垂直移动
+        # 根据角度计算水平移动
         angle_rad = np.radians(self._player_angle)
         horizontal_move = self._player_speed * np.sin(angle_rad)
-        vertical_move = self._player_speed * np.cos(angle_rad)
 
         # 更新玩家位置
         self._player_x += horizontal_move
-        self._player_y += vertical_move
         
         # 增加下滑距离和分数
-        self._distance += vertical_move
+        self._distance += self._player_speed
         self._score = self._distance
         
         # 根据距离增加速度
@@ -148,7 +141,7 @@ class SkiingRGBEnv(gymnasium.Env):
         new_obstacles = []
         for obstacle in self._obstacles:
             x, y = obstacle
-            y -= OBSTACLE_VEL_Y  # 障碍物向上移动
+            y -= self._player_speed  # 障碍物向上移动，使用玩家速度衡量
             
             # 只保留还在屏幕内的障碍物
             if y > -OBSTACLE_HEIGHT:
@@ -247,15 +240,100 @@ class SkiingRGBEnv(gymnasium.Env):
     
     def _generate_obstacle(self):
         """生成一个新的障碍物"""
-        # 确保障碍物不会生成在玩家初始位置附近
-        min_x = 0
-        max_x = self._screen_width - OBSTACLE_WIDTH
+        half_width = OBSTACLE_WIDTH // 2
+        half_height = OBSTACLE_HEIGHT // 2
         
-        # 障碍物从屏幕底部生成
-        x = np.random.randint(min_x, max_x + 1)
-        y = self._screen_height  # 从屏幕底部开始
+        # 障碍物中心坐标的有效范围
+        min_x = half_width
+        max_x = self._screen_width - half_width
+        min_y = half_height
+        max_y = self._screen_height - half_height
         
-        self._obstacles.append((x, y))
+        # 新障碍物从屏幕底部生成
+        y = self._screen_height - half_height
+        
+        # 安全间距
+        safety_margin = PLAYER_WIDTH + 5
+        
+        # 最大尝试次数
+        max_attempts = 50
+        attempts = 0
+        
+        while attempts < max_attempts:
+            # 随机生成障碍物中心x坐标
+            x = np.random.randint(min_x, max_x + 1)
+            
+            # 创建带安全间距的检测区域
+            detection_rect = pygame.Rect(
+                x - half_width - safety_margin,      # 左边界（带间距）
+                y - half_height - safety_margin,     # 上边界（带间距）
+                OBSTACLE_WIDTH + 2 * safety_margin,  # 宽度（带间距）
+                OBSTACLE_HEIGHT + 2 * safety_margin  # 高度（带间距）
+            )
+            
+            # 检查是否与现存障碍物重叠（考虑安全间距）
+            overlap = False
+            for existing_obstacle in self._obstacles:
+                existing_x, existing_y = existing_obstacle
+                existing_detection_rect = pygame.Rect(
+                    existing_x - half_width - safety_margin,
+                    existing_y - half_height - safety_margin,
+                    OBSTACLE_WIDTH + 2 * safety_margin,
+                    OBSTACLE_HEIGHT + 2 * safety_margin
+                )
+                
+                if detection_rect.colliderect(existing_detection_rect):
+                    overlap = True
+                    break
+            
+            # 如果没有重叠，添加障碍物
+            if not overlap:
+                self._obstacles.append((x, y))
+                return
+            
+            attempts += 1
+        
+        # 备用策略：如果无法找到理想位置，尝试在现有障碍物之间寻找空隙
+        if attempts >= max_attempts and self._obstacles:
+            # 对现有障碍物按x坐标排序
+            sorted_obstacles = sorted(self._obstacles, key=lambda obs: obs[0])
+            
+            # 查找障碍物之间的空隙
+            for i in range(len(sorted_obstacles)):
+                if i == 0:
+                    # 检查最左边的空隙
+                    left_boundary = half_width
+                    right_boundary = sorted_obstacles[0][0] - half_width
+                    gap = right_boundary - left_boundary
+                    
+                    if gap >= OBSTACLE_WIDTH + 2 * safety_margin:
+                        x = left_boundary + gap // 2
+                        self._obstacles.append((x, y))
+                        return
+                
+                if i == len(sorted_obstacles) - 1:
+                    # 检查最右边的空隙
+                    left_boundary = sorted_obstacles[i][0] + half_width
+                    right_boundary = self._screen_width - half_width
+                    gap = right_boundary - left_boundary
+                    
+                    if gap >= OBSTACLE_WIDTH + 2 * safety_margin:
+                        x = left_boundary + gap // 2
+                        self._obstacles.append((x, y))
+                        return
+                else:
+                    # 检查中间的空隙
+                    left_obstacle = sorted_obstacles[i]
+                    right_obstacle = sorted_obstacles[i + 1]
+                    
+                    left_boundary = left_obstacle[0] + half_width
+                    right_boundary = right_obstacle[0] - half_width
+                    gap = right_boundary - left_boundary
+                    
+                    if gap >= OBSTACLE_WIDTH + 2 * safety_margin:
+                        x = left_boundary + gap // 2
+                        self._obstacles.append((x, y))
+                        return
     
     def _get_observation(self) -> np.ndarray:
         """获取观察值 - 返回RGB图像数组"""
