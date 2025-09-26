@@ -23,34 +23,19 @@ class params():
         self.gamma = 0.99
         self.action_dim = 5  # 5种动作
         self.obs_dim = (4, 84, 84)  # 4帧堆叠，84x84
-        self.capacity = 10000  # 增大经验池容量
+        self.capacity = 50000  # 增大经验池容量
         self.cuda = 'cuda:0' if torch.cuda.is_available() else 'cpu'
         self.Frames = 4
-        self.episodes = 100  # 减少总幕数进行测试
-        self.updatebatch = 32  # 增大批次大小
-        self.test_episodes = 5  # 减少测试幕数
-        self.epsilon = 1.0  # 初始探索率
-        self.epsilon_min = 0.01  # 最小探索率
+        self.episodes = int(1e8)  # 减少总幕数进行测试
+        self.updatebatch = 512  # 增大批次大小
+        self.test_episodes = 10  # 减少测试幕数
+        self.epsilon = 0.1  # 初始探索率
+        self.epsilon_min = 0.001  # 最小探索率
         self.epsilon_decay = 0.995  # 探索率衰减
-        self.Q_NETWORK_ITERATION = 100  # 目标网络更新频率
-        self.learning_rate = 0.0001  # 调整学习率
+        self.Q_NETWORK_ITERATION = 50  # 目标网络更新频率
+        self.learning_rate = 0.001  # 调整学习率
 
-# 初始化环境和智能体 - 训练时不需要窗口，测试和演示时需要
-mode = input("选择模式 (1-训练, 2-测试, 3-演示): ").strip()
-
-if mode == "1":
-    # 训练模式：使用rgb_array模式提高效率
-    env = make_skiing_env("Skiing-rgb-v0", render_mode=None)  # 无窗口渲染
-elif mode == "2" or mode == "3":
-    # 测试和演示模式：使用human模式显示窗口
-    env = make_skiing_env("Skiing-rgb-v0", render_mode="human", debug=True)
-else:
-    env = make_skiing_env("Skiing-rgb-v0", render_mode=None)
-
-arg = params()
-agent = DQN(env, arg)
-
-def load_state():
+def load_state(arg, agent):
     """加载预训练模型"""
     modelpath = 'ski_dqn_best.pkl'
     if os.path.exists(modelpath):
@@ -75,7 +60,7 @@ def _roll_obs(prev_obs, new_frame):
     new_frame = _process_frame(new_frame)[np.newaxis]  # (1,84,84)
     return np.concatenate([new_frame, prev_obs[:-1]], axis=0)
 
-def training():
+def training(arg, agent, env):
     """训练函数"""
     reward_curve = []
     fig, ax = plt.subplots()
@@ -111,9 +96,12 @@ def training():
             if len(step_result) == 5:  # Gymnasium返回5个值
                 next_frame, reward, terminated, truncated, info = step_result
                 done = terminated or truncated
-            else:  # 兼容旧版Gym
+            else:
                 next_frame, reward, done, info = step_result
-                
+            
+            if done:
+                reward -= 100  # 终止时的惩罚
+
             total_reward += reward
             step_count += 1
 
@@ -151,12 +139,11 @@ def training():
 
         # 定期评估和保存
         if episode % 50 == 0:
-            # 临时切换到测试模式进行评估
             original_render_mode = env.render_mode
             env.close()
             test_env = make_skiing_env("Skiing-rgb-v0", render_mode=None)  # 测试时不显示窗口
             
-            avg_reward = test_performance(test_env)
+            avg_reward = test_performance(arg, agent, test_env)
             reward_curve.append(avg_reward)
             
             print(f'Episode {episode:>6} | '
@@ -191,7 +178,7 @@ def training():
     torch.save(agent.Net.state_dict(), 'ski_dqn_final.pkl')
     print("训练完成!最终模型已保存。")
 
-def test_performance(test_env=None):
+def test_performance(arg, agent, test_env=None):
     """测试智能体性能"""
     if test_env is None:
         test_env = make_skiing_env("Skiing-rgb-v0", render_mode=None)
@@ -235,9 +222,9 @@ def test_performance(test_env=None):
     
     return np.mean(rewards)
 
-def demo_play():
+def demo_play(arg, agent, env):
     """演示模式：使用训练好的模型进行游戏（带窗口显示）"""
-    load_state()
+    load_state(arg, agent)
     arg.epsilon = 0.0  # 完全贪婪
     
     reset_result = env.reset()
@@ -292,9 +279,9 @@ def demo_play():
     if restart == 'y':
         demo_play()
 
-def test_with_display():
+def test_with_display(arg, agent):
     """带窗口显示的测试模式"""
-    load_state()
+    load_state(arg, agent)
     
     # 创建带窗口的测试环境
     test_env = make_skiing_env("Skiing-rgb-v0", render_mode="human", debug=True)
@@ -352,18 +339,32 @@ def test_with_display():
 
 if __name__ == '__main__':
     # 选择模式
+    # 初始化环境和智能体 - 训练时不需要窗口，测试和演示时需要
+    mode = input("选择模式 (1-训练, 2-测试, 3-演示): ").strip()
+    arg = params()
     if mode == "1":
         print("开始训练模式...")
-        load_state()  # 加载已有模型继续训练
-        training()
+        # 训练模式：使用rgb_array模式提高效率
+        env = make_skiing_env("Skiing-rgb-v0", render_mode=None)  # 无窗口渲染
+        agent = DQN(env, arg)
+        load_state(arg, agent)  # 加载已有模型继续训练
+        training(arg, agent, env)
     elif mode == "2":
         print("开始测试模式（带窗口显示）...")
-        test_with_display()
+        env = make_skiing_env("Skiing-rgb-v0", render_mode="human", debug=True)
+        agent = DQN(env, arg)
+        test_with_display(arg, agent)
     elif mode == "3":
         print("开始演示模式...")
-        demo_play()
+        env = make_skiing_env("Skiing-rgb-v0", render_mode="human", debug=True)
+        agent = DQN(env, arg)
+        demo_play(arg, agent, env)
     else:
         print("开始训练模式...")
-        training()
+        # 训练模式：使用rgb_array模式提高效率
+        env = make_skiing_env("Skiing-rgb-v0", render_mode=None)  # 无窗口渲染
+        agent = DQN(env, arg)
+        load_state(arg, agent)  # 加载已有模型继续训练
+        training(arg, agent, env)
     
     env.close()
