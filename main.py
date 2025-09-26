@@ -277,7 +277,7 @@ def demo_play(arg, agent, env):
     # 询问是否重新开始演示
     restart = input("是否重新开始演示? (y/n): ").strip().lower()
     if restart == 'y':
-        demo_play()
+        demo_play(arg, agent, env)
 
 def test_with_display(arg, agent):
     """带窗口显示的测试模式"""
