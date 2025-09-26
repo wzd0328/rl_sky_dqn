@@ -1,7 +1,7 @@
 ## 运行代码步骤
 1. `git clone https://github.com/wzd0328/rl_sky_dqn.git`
 
-📝 **说明**：先根据cuda版本安装pytorch(这一步我之前没注意不同环境是隔离的就没下，先执行的后面几步)
+📝 **说明**：先根据cuda版本安装pytorch(这一步我之前没注意不同环境是隔离的就没下，先执行的后面几步,建议在官网https://pytorch.org/get-started/locally/ 找到命令行)
 
 2. `pip3 install torch torchvision`
 
