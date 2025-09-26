@@ -36,13 +36,11 @@ BACKGROUND_COLOR = (135, 206, 235)  # 天蓝色背景，模拟天空
 SNOW_COLOR = (255, 250, 250)  # 雪地颜色
 
 class Actions(IntEnum):
-    """滑雪者的可能动作"""
+    """滑雪者的可能动作-5种"""
     STRAIGHT, LEFT_15, LEFT_45, RIGHT_15, RIGHT_45 = 0, 1, 2, 3, 4
 
 class SkiingRGBEnv(gymnasium.Env):
-    """滑雪小游戏环境（RGB图像版本）
-    
-    这个版本返回RGB图像作为观测值，可以直接用process_image函数处理
+    """滑雪小游戏环境-返回RGB图像
     """
     
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 30}
@@ -78,7 +76,7 @@ class SkiingRGBEnv(gymnasium.Env):
         self._player_angle = 0  # 角度，0表示垂直向下
         self._player_speed = INITIAL_PLAYER_SPEED
         self._obstacles = []  # 障碍物列表，每个障碍物是(x, y)元组
-        self._score = 0  # 分数基于垂直下滑距离
+        self._score = 0  # 分数为垂直下滑距离
         self._distance = 0  # 下滑总距离
         self._obstacle_generation_rate = OBSTACLE_GENERATION_RATE_INITIAL
         
@@ -120,16 +118,17 @@ class SkiingRGBEnv(gymnasium.Env):
         elif action == Actions.RIGHT_45:
             self._player_angle = 45
         
-        # 根据角度计算水平移动
+        # 根据角度计算水平移动和垂直移动
         angle_rad = np.radians(self._player_angle)
         horizontal_move = self._player_speed * np.sin(angle_rad)
-        
+        vertical_move = self._player_speed * np.cos(angle_rad)
+
         # 更新玩家位置
         self._player_x += horizontal_move
-        self._player_y += self._player_speed  # 垂直方向始终向下
+        self._player_y += vertical_move
         
         # 增加下滑距离和分数
-        self._distance += self._player_speed
+        self._distance += vertical_move
         self._score = self._distance
         
         # 根据距离增加速度
@@ -160,7 +159,7 @@ class SkiingRGBEnv(gymnasium.Env):
         # 1. 超出屏幕左右边界
         if self._player_x < 0 or self._player_x > self._screen_width - PLAYER_WIDTH:
             terminal = True
-            reward = -1.0
+            reward = -10.0
             if self._debug:
                 print("游戏结束：超出屏幕边界")
         
@@ -170,17 +169,17 @@ class SkiingRGBEnv(gymnasium.Env):
             obstacle_rect = pygame.Rect(obstacle[0], obstacle[1], OBSTACLE_WIDTH, OBSTACLE_HEIGHT)
             if player_rect.colliderect(obstacle_rect):
                 terminal = True
-                reward = -1.0
+                reward = -10.0
                 if self._debug:
                     print("游戏结束：碰到障碍物")
                 break
         
-        # 3. 超出屏幕底部（正常情况不会发生，因为玩家向下滑）
-        if self._player_y > self._screen_height:
-            terminal = True
-            reward = -1.0
-            if self._debug:
-                print("游戏结束：超出屏幕底部")
+        # # 3. 超出屏幕底部（正常情况不会发生，因为玩家向下滑）
+        # if self._player_y > self._screen_height:
+        #     terminal = True
+        #     reward = -1.0
+        #     if self._debug:
+        #         print("游戏结束：超出屏幕底部")
         
         # 获取观察值（RGB图像）
         obs = self._get_observation()
@@ -364,7 +363,7 @@ class SkiingRGBEnv(gymnasium.Env):
 
 # 创建环境的函数
 def make_skiing_env(env_name, **kwargs):
-    """创建滑雪环境（模仿gymnasium的make函数）"""
+    """创建滑雪环境"""
     if env_name == "Skiing-rgb-v0":
         return SkiingRGBEnv(**kwargs)
     else:
