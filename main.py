@@ -25,10 +25,10 @@ class params():
         self.gamma = 0.99
         self.action_dim = 5  # 5种动作
         self.obs_dim = (4, 84, 84)  # 4帧堆叠，84x84
-        self.capacity = 50000  # 增大经验池容量
+        self.capacity = 10000  # 增大经验池容量
         self.cuda = 'cuda:0' if torch.cuda.is_available() else 'cpu'
         self.Frames = 4
-        self.episodes = int(1e8)  # 减少总幕数进行测试
+        self.episodes = int(1e3)  # 减少总幕数进行测试
         self.updatebatch = 512  # 增大批次大小
         self.test_episodes = 10  # 减少测试幕数
         self.epsilon = 0.1  # 初始探索率

@@ -9,10 +9,10 @@ from pathlib import Path
 # 常量定义
 SCREEN_WIDTH = 288
 SCREEN_HEIGHT = 512
-PLAYER_WIDTH = 30
-PLAYER_HEIGHT = 30
-OBSTACLE_WIDTH = 40
-OBSTACLE_HEIGHT = 40
+PLAYER_WIDTH = 40
+PLAYER_HEIGHT = 40
+OBSTACLE_WIDTH = 30
+OBSTACLE_HEIGHT = 30
 INITIAL_PLAYER_SPEED = 2
 MAX_PLAYER_SPEED = 10
 ACCELERATION_RATE = 0.001
@@ -154,12 +154,12 @@ class SkiingRGBEnv(gymnasium.Env):
         # 移动障碍物（向上移动，因为玩家在向下滑）
         new_obstacles = []
         for obstacle in self._obstacles:
-            x, y = obstacle
+            x, y, obs_type = obstacle
             y -= self._player_speed  # 障碍物向上移动，使用玩家速度衡量
             
             # 只保留还在屏幕内的障碍物
-            if y > -OBSTACLE_HEIGHT:
-                new_obstacles.append((x, y))
+            if y > self._player_y:
+                new_obstacles.append((x, y, obs_type))
         self._obstacles = new_obstacles
         
         # 检查游戏结束条件
@@ -173,16 +173,39 @@ class SkiingRGBEnv(gymnasium.Env):
         
         # 2. 碰到障碍物
         else:
-            player_rect = pygame.Rect(self._player_x, self._player_y, PLAYER_WIDTH, PLAYER_HEIGHT)
+            def circle_collision(center1_x, center1_y, radius1, center2_x, center2_y, radius2):
+                """圆形碰撞检测"""
+                distance = ((center1_x - center2_x) ** 2 + (center1_y - center2_y) ** 2) ** 0.5
+                return distance < (radius1 + radius2)
+
+            # 使用圆形碰撞检测
+            player_center_x = self._player_x
+            player_center_y = self._player_y
+            player_radius = min(PLAYER_WIDTH, PLAYER_HEIGHT) // 2 * 0.8  # 使用80%的半径，让碰撞更合理
+
             for obstacle in self._obstacles:
-                obstacle_rect = pygame.Rect(obstacle[0], obstacle[1], OBSTACLE_WIDTH, OBSTACLE_HEIGHT)
-                if player_rect.colliderect(obstacle_rect):
+                obs_center_x, obs_center_y, obs_type = obstacle
+                obs_radius = min(OBSTACLE_WIDTH, OBSTACLE_HEIGHT) // 2 * 0.6
+                
+                if circle_collision(player_center_x, player_center_y, player_radius,
+                                obs_center_x, obs_center_y, obs_radius):
                     terminal = True
                     reward = -10.0
                     self._game_over = True
+                    self._final_score = self._score
                     if self._debug:
-                        print("游戏结束：碰到障碍物")
+                        print("游戏结束：碰到障碍物（圆形检测）")
                     break
+            # player_rect = pygame.Rect(self._player_x - PLAYER_WIDTH // 2, self._player_y - PLAYER_HEIGHT // 2, PLAYER_WIDTH, PLAYER_HEIGHT)
+            # for obstacle in self._obstacles:
+            #     obstacle_rect = pygame.Rect(obstacle[0]- OBSTACLE_WIDTH // 2, obstacle[1] - OBSTACLE_HEIGHT // 2, OBSTACLE_WIDTH, OBSTACLE_HEIGHT)
+            #     if player_rect.colliderect(obstacle_rect):
+            #         terminal = True
+            #         reward = -10.0
+            #         self._game_over = True
+            #         if self._debug:
+            #             print("游戏结束：碰到障碍物")
+            #         break
         
         # 获取观察值（RGB图像）
         obs = self._get_observation()
@@ -205,7 +228,7 @@ class SkiingRGBEnv(gymnasium.Env):
 
         # 重置玩家状态
         self._player_x = self._screen_width // 2 - PLAYER_WIDTH // 2
-        self._player_y = 10
+        self._player_y = 120
         self._player_angle = 0
         self._player_speed = INITIAL_PLAYER_SPEED
         
@@ -271,6 +294,8 @@ class SkiingRGBEnv(gymnasium.Env):
         # 最大尝试次数
         max_attempts = 50
         attempts = 0
+
+        obs_type = np.random.randint(0, 2) # 随机选择障碍物类型（0或1）
         
         while attempts < max_attempts:
             # 随机生成障碍物中心x坐标
@@ -287,7 +312,7 @@ class SkiingRGBEnv(gymnasium.Env):
             # 检查是否与现存障碍物重叠（考虑安全间距）
             overlap = False
             for existing_obstacle in self._obstacles:
-                existing_x, existing_y = existing_obstacle
+                existing_x, existing_y, _ = existing_obstacle
                 existing_detection_rect = pygame.Rect(
                     existing_x - half_width - safety_margin,
                     existing_y - half_height - safety_margin,
@@ -301,7 +326,7 @@ class SkiingRGBEnv(gymnasium.Env):
             
             # 如果没有重叠，添加障碍物
             if not overlap:
-                self._obstacles.append((x, y))
+                self._obstacles.append((x, y, obs_type))
                 return
             
             attempts += 1
@@ -321,7 +346,7 @@ class SkiingRGBEnv(gymnasium.Env):
                     
                     if gap >= OBSTACLE_WIDTH + 2 * safety_margin:
                         x = left_boundary + gap // 2
-                        self._obstacles.append((x, y))
+                        self._obstacles.append((x, y, obs_type))
                         return
                 
                 if i == len(sorted_obstacles) - 1:
@@ -332,7 +357,7 @@ class SkiingRGBEnv(gymnasium.Env):
                     
                     if gap >= OBSTACLE_WIDTH + 2 * safety_margin:
                         x = left_boundary + gap // 2
-                        self._obstacles.append((x, y))
+                        self._obstacles.append((x, y, obs_type))
                         return
                 else:
                     # 检查中间的空隙
@@ -345,7 +370,7 @@ class SkiingRGBEnv(gymnasium.Env):
                     
                     if gap >= OBSTACLE_WIDTH + 2 * safety_margin:
                         x = left_boundary + gap // 2
-                        self._obstacles.append((x, y))
+                        self._obstacles.append((x, y, obs_type))
                         return
     
     def _get_observation(self) -> np.ndarray:
@@ -366,17 +391,52 @@ class SkiingRGBEnv(gymnasium.Env):
         images = {}
         
         try:
-            # 创建玩家图像（简单的彩色矩形）
-            player_surface = pygame.Surface((PLAYER_WIDTH, PLAYER_HEIGHT), pygame.SRCALPHA)
-            pygame.draw.rect(player_surface, RED, (0, 0, PLAYER_WIDTH, PLAYER_HEIGHT))
-            pygame.draw.circle(player_surface, BLUE, (PLAYER_WIDTH//2, PLAYER_HEIGHT//2), PLAYER_WIDTH//3)
-            images["player"] = player_surface
+            # # 创建玩家图像（简单的彩色矩形）
+            # player_surface = pygame.Surface((PLAYER_WIDTH, PLAYER_HEIGHT), pygame.SRCALPHA)
+            # pygame.draw.rect(player_surface, RED, (0, 0, PLAYER_WIDTH, PLAYER_HEIGHT))
+            # pygame.draw.circle(player_surface, BLUE, (PLAYER_WIDTH//2, PLAYER_HEIGHT//2), PLAYER_WIDTH//3)
+            # images["player"] = player_surface
             
-            # 创建障碍物图像
-            obstacle_surface = pygame.Surface((OBSTACLE_WIDTH, OBSTACLE_HEIGHT), pygame.SRCALPHA)
-            pygame.draw.rect(obstacle_surface, GREEN, (0, 0, OBSTACLE_WIDTH, OBSTACLE_HEIGHT))
-            pygame.draw.rect(obstacle_surface, BLACK, (5, 5, OBSTACLE_WIDTH-10, OBSTACLE_HEIGHT-10), 2)
-            images["obstacle"] = obstacle_surface
+            # # 创建障碍物图像
+            # obstacle_surface = pygame.Surface((OBSTACLE_WIDTH, OBSTACLE_HEIGHT), pygame.SRCALPHA)
+            # pygame.draw.rect(obstacle_surface, GREEN, (0, 0, OBSTACLE_WIDTH, OBSTACLE_HEIGHT))
+            # pygame.draw.rect(obstacle_surface, BLACK, (5, 5, OBSTACLE_WIDTH-10, OBSTACLE_HEIGHT-10), 2)
+            # images["obstacle"] = obstacle_surface
+
+            # 加载玩家5种动作图像
+            assets_dir = Path("./figure")
+            player_images = {}
+            actions = ["straight", "left_15", "left_45", "right_15", "right_45"]
+            for action in actions:
+                img_path = assets_dir / f"{action}.png"
+                if img_path.exists():
+                    player_surface = pygame.image.load(str(img_path)).convert_alpha()
+                    # 调整大小到标准尺寸
+                    player_surface = pygame.transform.scale(player_surface, (PLAYER_WIDTH, PLAYER_HEIGHT))
+                    player_images[action] = player_surface
+            images["player_straight"] = player_images["straight"]
+            images["player_left_15"] = player_images["left_15"]
+            images["player_left_45"] = player_images["left_45"]
+            images["player_right_15"] = player_images["right_15"]
+            images["player_right_45"] = player_images["right_45"]
+
+            # 加载障碍物图像
+            obstacle_images = []
+            obstacle_names = ["stone.png", "tree.png"]
+            for obs_name in obstacle_names:
+                obstacle_path = assets_dir / obs_name
+                if obstacle_path.exists():
+                    obstacle_surface = pygame.image.load(str(obstacle_path)).convert_alpha()
+                    obstacle_surface = pygame.transform.scale(obstacle_surface, (OBSTACLE_WIDTH, OBSTACLE_HEIGHT))
+                    obstacle_images.append(obstacle_surface)
+            images["obstacle"] = obstacle_images
+
+            # 加载背景图像
+            bg_path = assets_dir / "background.jpg"
+            if bg_path.exists():
+                bg_surface = pygame.image.load(str(bg_path)).convert()
+                bg_surface = pygame.transform.scale(bg_surface, (self._screen_width, self._screen_height))
+                images["background"] = bg_surface
             
         except Exception as e:
             print(f"加载图像失败: {e}")
@@ -397,45 +457,69 @@ class SkiingRGBEnv(gymnasium.Env):
     def _draw_surface(self) -> None:
         """绘制游戏画面到surface"""
         # 绘制背景
-        self._surface.fill(BACKGROUND_COLOR)
-        
-        # 绘制雪地（底部）
-        pygame.draw.rect(self._surface, SNOW_COLOR, (0, self._screen_height * 0.7, self._screen_width, self._screen_height * 0.3))
+        if self._images.get("background"):
+            self._surface.blit(self._images["background"], (0, 0))
+        else:
+            self._surface.fill(BACKGROUND_COLOR)
+            # 绘制雪地（底部）
+            pygame.draw.rect(self._surface, SNOW_COLOR, (0, self._screen_height * 0.7, self._screen_width, self._screen_height * 0.3))
         
         if not self._game_over:
             # 绘制障碍物
             for obstacle in self._obstacles:
-                x, y = obstacle
+                x, y, obs_type = obstacle
                 if self._use_images and self._images:
-                    # 使用图像绘制障碍物
-                    self._surface.blit(self._images["obstacle"], (x, y))
+                    # 使用图像绘制障碍物，坐标为中心
+                    obstacle_img = self._images["obstacle"][obs_type]
+                    img_rect = obstacle_img.get_rect(center=(x, y))
+                    self._surface.blit(obstacle_img, img_rect)
                 else:
                     # 使用矩形绘制障碍物
-                    pygame.draw.rect(self._surface, GREEN, (x, y, OBSTACLE_WIDTH, OBSTACLE_HEIGHT))
-                    pygame.draw.rect(self._surface, BLACK, (x+5, y+5, OBSTACLE_WIDTH-10, OBSTACLE_HEIGHT-10), 2)
+                    half_width = OBSTACLE_WIDTH // 2
+                    half_height = OBSTACLE_HEIGHT // 2
+                    obstacle_rect = pygame.Rect(x - half_width, y - half_height, OBSTACLE_WIDTH, OBSTACLE_HEIGHT)
+                    pygame.draw.rect(self._surface, GREEN, obstacle_rect)
+                    pygame.draw.rect(self._surface, BLACK, obstacle_rect.inflate(-10, -10), 2)
             
             # 绘制玩家
             if self._use_images and self._images:
+                if self._player_angle == 0:
+                    player_img = self._images["player_straight"]
+                elif self._player_angle == -15:
+                    player_img = self._images["player_left_15"]
+                elif self._player_angle == -45:
+                    player_img = self._images["player_left_45"]
+                elif self._player_angle == 15:
+                    player_img = self._images["player_right_15"]
+                elif self._player_angle == 45:
+                    player_img = self._images["player_right_45"]
+                else:
+                    player_img = self._images["player_straight"]
+                player_rect = player_img.get_rect(center=(self._player_x + PLAYER_WIDTH//2, self._player_y + PLAYER_HEIGHT//2))
+                self._surface.blit(player_img, player_rect)
+            else:
+                player_surface = pygame.Surface((PLAYER_WIDTH, PLAYER_HEIGHT), pygame.SRCALPHA)
+                pygame.draw.rect(player_surface, RED, (0, 0, PLAYER_WIDTH, PLAYER_HEIGHT))
+                pygame.draw.circle(player_surface, BLUE, (PLAYER_WIDTH//2, PLAYER_HEIGHT//2), PLAYER_WIDTH//3)
                 # 旋转玩家图像以匹配角度
-                rotated_player = pygame.transform.rotate(self._images["player"], -self._player_angle)
+                rotated_player = pygame.transform.rotate(player_surface, -self._player_angle)
                 rect = rotated_player.get_rect(center=(self._player_x + PLAYER_WIDTH//2, self._player_y + PLAYER_HEIGHT//2))
                 self._surface.blit(rotated_player, rect)
-            else:
-                # 使用矩形和三角形绘制玩家
-                player_rect = pygame.Rect(self._player_x, self._player_y, PLAYER_WIDTH, PLAYER_HEIGHT)
-                pygame.draw.rect(self._surface, RED, player_rect)
+                # # 使用矩形和三角形绘制玩家
+                # player_rect = pygame.Rect(self._player_x, self._player_y, PLAYER_WIDTH, PLAYER_HEIGHT)
+                # pygame.draw.rect(self._surface, RED, player_rect)
                 
-                # 根据角度绘制方向指示器
-                center_x = self._player_x + PLAYER_WIDTH // 2
-                center_y = self._player_y + PLAYER_HEIGHT // 2
+                # # 根据角度绘制方向指示器
+                # center_x = self._player_x + PLAYER_WIDTH // 2
+                # center_y = self._player_y + PLAYER_HEIGHT // 2
                 
-                # 绘制方向三角形
-                angle_rad = np.radians(self._player_angle)
-                end_x = center_x + 15 * np.sin(angle_rad)
-                end_y = center_y - 15 * np.cos(angle_rad)  # 负号因为y轴向下
+                # # 绘制方向三角形
+                # angle_rad = np.radians(self._player_angle)
+                # end_x = center_x + 15 * np.sin(angle_rad)
+                # end_y = center_y - 15 * np.cos(angle_rad)  # 负号因为y轴向下
             
-                pygame.draw.line(self._surface, BLUE, (center_x, center_y), (end_x, end_y), 3)
-                pygame.draw.circle(self._surface, BLUE, (int(end_x), int(end_y)), 5)
+                # pygame.draw.line(self._surface, BLUE, (center_x, center_y), (end_x, end_y), 3)
+                # pygame.draw.circle(self._surface, BLUE, (int(end_x), int(end_y)), 5)
             
             # 绘制分数
             score_text = self._font.render(f"Score: {int(self._distance)}", True, BLACK)
