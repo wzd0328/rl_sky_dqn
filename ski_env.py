@@ -82,6 +82,10 @@ class SkiingRGBEnv(gymnasium.Env):
         if not pygame.font.get_init():
             pygame.font.init()
 
+        # 加载并播放背景音乐
+        pygame.mixer.music.load('music/troublemaker.mp3')  # 确保路径正确
+        pygame.mixer.music.play(-1)  # -1表示循环播放
+
         self._font = pygame.font.Font(None, 36)
         # 预加载游戏结束字体
         self._game_over_font_large = pygame.font.Font(None, 72)
