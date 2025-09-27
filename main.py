@@ -243,43 +243,85 @@ def demo_play(arg, agent, env):
     print("开始演示! 按Ctrl+C退出")
     
     try:
-        while not done:
-            action = agent.greedy_action(obs)
-            
-            step_result = env.step(action)
-            if len(step_result) == 5:
-                next_frame, reward, terminated, truncated, info = step_result
-                done = terminated or truncated
-            else:
-                next_frame, reward, done, info = step_result
+        while True:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    return
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        print("游戏退出")
+                        return
+                    elif event.key == pygame.K_r and done:
+                        # 重新开始游戏
+                        reset_result = env.reset()
+                        if isinstance(reset_result, tuple):
+                            raw_frame, info = reset_result
+                        else:
+                            raw_frame, info = reset_result, {}
+                        obs = _make_init_obs(raw_frame)
+                        done = False
+                        total_reward = 0
+                        step_count = 0
+                        print("游戏重新开始!")
+                # 处理鼠标点击（用于游戏结束界面的按钮）
+                elif event.type == pygame.MOUSEBUTTONDOWN and done:
+                    mouse_pos = event.pos
+                    restart_button = pygame.Rect(env._screen_width // 2 - 100, env._screen_height // 2 + 30, 200, 50)
+                    quit_button = pygame.Rect(env._screen_width // 2 - 100, env._screen_height // 2 + 100, 200, 50)
+                    if restart_button.collidepoint(mouse_pos):
+                        # 触发重新开始
+                        reset_result = env.reset()
+                        if isinstance(reset_result, tuple):
+                            raw_frame, info = reset_result
+                        else:
+                            raw_frame, info = reset_result, {}
+                        obs = _make_init_obs(raw_frame)
+                        done = False
+                        total_reward = 0
+                        step_count = 0
+                        print("游戏重新开始!")
+                    elif quit_button.collidepoint(mouse_pos):
+                        # 触发退出游戏
+                        print("游戏退出")
+                        return
+            if not done:
+                action = agent.greedy_action(obs)
                 
-            obs = _roll_obs(obs, next_frame)
-            total_reward += reward
-            step_count += 1
-            
-            # 显示当前信息
-            if step_count % 10 == 0:
-                print(f"步数: {step_count}, 累计奖励: {total_reward:.1f}")
-            
-            # 控制演示速度
-            time.sleep(0.05)  # 20 FPS
-            
-            if done:
-                print(f"演示结束! 总步数: {step_count}, 最终得分: {total_reward}")
-                break
+                step_result = env.step(action)
+                if len(step_result) == 5:
+                    next_frame, reward, terminated, truncated, info = step_result
+                    done = terminated or truncated
+                else:
+                    next_frame, reward, done, info = step_result
+                    
+                obs = _roll_obs(obs, next_frame)
+                total_reward += reward
+                step_count += 1
                 
-            # 限制演示时间
-            if step_count > 1000:
-                print(f"演示达到最大步数! 最终得分: {total_reward}")
-                break
+                # 显示当前信息
+                if step_count % 50 == 0:
+                    print(f"步数: {step_count}, 累计奖励: {total_reward:.1f}")
+                
+                # 控制演示速度
+                time.sleep(0.01)  # 100 FPS
+                
+                if done:
+                    final_score = info["score"]
+                    print(f"演示结束! 总步数: {step_count}, 最终得分: {final_score}")
+                    # break
+                
+            # # 限制演示时间
+            # if step_count > 1000:
+            #     print(f"演示达到最大步数! 最终得分: {total_reward}")
+            #     break
                 
     except KeyboardInterrupt:
         print(f"\n演示被用户中断! 最终得分: {total_reward}")
     
-    # 询问是否重新开始演示
-    restart = input("是否重新开始演示? (y/n): ").strip().lower()
-    if restart == 'y':
-        demo_play(arg, agent, env)
+    # # 询问是否重新开始演示
+    # restart = input("是否重新开始演示? (y/n): ").strip().lower()
+    # if restart == 'y':
+    #     demo_play(arg, agent, env)
 
 def human_play_mode(env):
     """人工玩法模式"""
@@ -319,6 +361,27 @@ def human_play_mode(env):
                         total_reward = 0
                         step_count = 0
                         print("游戏重新开始!")
+                # 处理鼠标点击（用于游戏结束界面的按钮）
+                elif event.type == pygame.MOUSEBUTTONDOWN and done:
+                    mouse_pos = event.pos
+                    restart_button = pygame.Rect(env._screen_width // 2 - 100, env._screen_height // 2 + 30, 200, 50)
+                    quit_button = pygame.Rect(env._screen_width // 2 - 100, env._screen_height // 2 + 100, 200, 50)
+                    if restart_button.collidepoint(mouse_pos):
+                        # 触发重新开始
+                        reset_result = env.reset()
+                        if isinstance(reset_result, tuple):
+                            raw_frame, info = reset_result
+                        else:
+                            raw_frame, info = reset_result, {}
+                        human_player.reset()
+                        done = False
+                        total_reward = 0
+                        step_count = 0
+                        print("游戏重新开始!")
+                    elif quit_button.collidepoint(mouse_pos):
+                        # 触发退出游戏
+                        print("游戏退出")
+                        return
             
             if not done:
                 # 获取人工玩家动作
@@ -342,39 +405,13 @@ def human_play_mode(env):
                 # 限制最大步数
                 if step_count > 5000:
                     done = True
-            else:
-                # 游戏结束显示
-                print(f"游戏结束! 最终得分: {total_reward}")
-                print("按R键重新开始，按ESC键退出")
-                
-                # 等待重新开始或退出
-                waiting = True
-                while waiting and not done:
-                    for event in pygame.event.get():
-                        if event.type == pygame.QUIT:
-                            waiting = False
-                        elif event.type == pygame.KEYDOWN:
-                            if event.key == pygame.K_r:
-                                reset_result = env.reset()
-                                if isinstance(reset_result, tuple):
-                                    raw_frame, info = reset_result
-                                else:
-                                    raw_frame, info = reset_result, {}
-                                human_player.reset()
-                                done = False
-                                total_reward = 0
-                                step_count = 0
-                                waiting = False
-                                print("游戏重新开始!")
-                            elif event.key == pygame.K_ESCAPE:
-                                waiting = False
-                    
-                    # 继续渲染
-                    env.render()
+                    # 设置游戏结束状态
+                    if hasattr(env, '_game_over'):
+                        env._game_over = True
                 
             # 渲染游戏
             env.render()
-            time.sleep(0.1)  # 控制游戏速度
+            time.sleep(0.05 if not done else 0.01)  # 控制游戏速度
             
     except KeyboardInterrupt:
         print("游戏退出")

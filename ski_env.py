@@ -74,6 +74,7 @@ class SkiingRGBEnv(gymnasium.Env):
         self._score = 0  # 分数为垂直下滑距离
         self._distance = 0  # 下滑总距离
         self._obstacle_generation_rate = OBSTACLE_GENERATION_RATE_INITIAL
+        self._game_over = False
         
         if not pygame.get_init():
             pygame.init()
@@ -82,6 +83,10 @@ class SkiingRGBEnv(gymnasium.Env):
             pygame.font.init()
 
         self._font = pygame.font.Font(None, 36)
+        # 预加载游戏结束字体
+        self._game_over_font_large = pygame.font.Font(None, 72)
+        self._game_over_font_medium = pygame.font.Font(None, 36)
+        self._game_over_font_small = pygame.font.Font(None, 24)
 
         # 渲染相关 - 必须初始化，因为我们要返回渲染的图像
         self._fps_clock = pygame.time.Clock()
@@ -98,6 +103,11 @@ class SkiingRGBEnv(gymnasium.Env):
         
     def step(self, action: Union[Actions, int]) -> Tuple[np.ndarray, float, bool, bool, Dict]:
         """执行一个动作，更新游戏状态"""
+        # 如果游戏已经结束，直接返回当前状态
+        if self._game_over:
+            obs = self._get_observation()
+            return obs, 0, True, False, {"score": self._score, "game_over": True}
+        
         terminal = False
         reward = 0.1  # 存活奖励
         
@@ -121,7 +131,7 @@ class SkiingRGBEnv(gymnasium.Env):
         self._player_x += horizontal_move
         
         # 增加下滑距离和分数
-        self._distance += self._player_speed
+        self._distance += self._player_speed * 0.1
         self._score = self._distance
         
         # 根据距离增加速度
@@ -153,26 +163,22 @@ class SkiingRGBEnv(gymnasium.Env):
         if self._player_x < 0 or self._player_x > self._screen_width - PLAYER_WIDTH:
             terminal = True
             reward = -10.0
+            self._game_over = True
             if self._debug:
                 print("游戏结束：超出屏幕边界")
         
         # 2. 碰到障碍物
-        player_rect = pygame.Rect(self._player_x, self._player_y, PLAYER_WIDTH, PLAYER_HEIGHT)
-        for obstacle in self._obstacles:
-            obstacle_rect = pygame.Rect(obstacle[0], obstacle[1], OBSTACLE_WIDTH, OBSTACLE_HEIGHT)
-            if player_rect.colliderect(obstacle_rect):
-                terminal = True
-                reward = -10.0
-                if self._debug:
-                    print("游戏结束：碰到障碍物")
-                break
-        
-        # # 3. 超出屏幕底部（正常情况不会发生，因为玩家向下滑）
-        # if self._player_y > self._screen_height:
-        #     terminal = True
-        #     reward = -1.0
-        #     if self._debug:
-        #         print("游戏结束：超出屏幕底部")
+        else:
+            player_rect = pygame.Rect(self._player_x, self._player_y, PLAYER_WIDTH, PLAYER_HEIGHT)
+            for obstacle in self._obstacles:
+                obstacle_rect = pygame.Rect(obstacle[0], obstacle[1], OBSTACLE_WIDTH, OBSTACLE_HEIGHT)
+                if player_rect.colliderect(obstacle_rect):
+                    terminal = True
+                    reward = -10.0
+                    self._game_over = True
+                    if self._debug:
+                        print("游戏结束：碰到障碍物")
+                    break
         
         # 获取观察值（RGB图像）
         obs = self._get_observation()
@@ -182,7 +188,7 @@ class SkiingRGBEnv(gymnasium.Env):
             self._update_display()
             self._fps_clock.tick(self.metadata["render_fps"])
         
-        info = {"score": self._score, "distance": self._distance, "speed": self._player_speed}
+        info = {"score": self._score, "distance": self._distance, "speed": self._player_speed, "game_over": self._game_over}
         
         return obs, reward, terminal, False, info
     
@@ -190,6 +196,9 @@ class SkiingRGBEnv(gymnasium.Env):
         """重置游戏状态"""
         super().reset(seed=seed)
         
+        # 重置游戏状态
+        self._game_over = False
+
         # 重置玩家状态
         self._player_x = self._screen_width // 2 - PLAYER_WIDTH // 2
         self._player_y = 10
@@ -389,51 +398,112 @@ class SkiingRGBEnv(gymnasium.Env):
         # 绘制雪地（底部）
         pygame.draw.rect(self._surface, SNOW_COLOR, (0, self._screen_height * 0.7, self._screen_width, self._screen_height * 0.3))
         
-        # 绘制障碍物
-        for obstacle in self._obstacles:
-            x, y = obstacle
+        if not self._game_over:
+            # 绘制障碍物
+            for obstacle in self._obstacles:
+                x, y = obstacle
+                if self._use_images and self._images:
+                    # 使用图像绘制障碍物
+                    self._surface.blit(self._images["obstacle"], (x, y))
+                else:
+                    # 使用矩形绘制障碍物
+                    pygame.draw.rect(self._surface, GREEN, (x, y, OBSTACLE_WIDTH, OBSTACLE_HEIGHT))
+                    pygame.draw.rect(self._surface, BLACK, (x+5, y+5, OBSTACLE_WIDTH-10, OBSTACLE_HEIGHT-10), 2)
+            
+            # 绘制玩家
             if self._use_images and self._images:
-                # 使用图像绘制障碍物
-                self._surface.blit(self._images["obstacle"], (x, y))
+                # 旋转玩家图像以匹配角度
+                rotated_player = pygame.transform.rotate(self._images["player"], -self._player_angle)
+                rect = rotated_player.get_rect(center=(self._player_x + PLAYER_WIDTH//2, self._player_y + PLAYER_HEIGHT//2))
+                self._surface.blit(rotated_player, rect)
             else:
-                # 使用矩形绘制障碍物
-                pygame.draw.rect(self._surface, GREEN, (x, y, OBSTACLE_WIDTH, OBSTACLE_HEIGHT))
-                pygame.draw.rect(self._surface, BLACK, (x+5, y+5, OBSTACLE_WIDTH-10, OBSTACLE_HEIGHT-10), 2)
-        
-        # 绘制玩家
-        if self._use_images and self._images:
-            # 旋转玩家图像以匹配角度
-            rotated_player = pygame.transform.rotate(self._images["player"], -self._player_angle)
-            rect = rotated_player.get_rect(center=(self._player_x + PLAYER_WIDTH//2, self._player_y + PLAYER_HEIGHT//2))
-            self._surface.blit(rotated_player, rect)
+                # 使用矩形和三角形绘制玩家
+                player_rect = pygame.Rect(self._player_x, self._player_y, PLAYER_WIDTH, PLAYER_HEIGHT)
+                pygame.draw.rect(self._surface, RED, player_rect)
+                
+                # 根据角度绘制方向指示器
+                center_x = self._player_x + PLAYER_WIDTH // 2
+                center_y = self._player_y + PLAYER_HEIGHT // 2
+                
+                # 绘制方向三角形
+                angle_rad = np.radians(self._player_angle)
+                end_x = center_x + 15 * np.sin(angle_rad)
+                end_y = center_y - 15 * np.cos(angle_rad)  # 负号因为y轴向下
+            
+                pygame.draw.line(self._surface, BLUE, (center_x, center_y), (end_x, end_y), 3)
+                pygame.draw.circle(self._surface, BLUE, (int(end_x), int(end_y)), 5)
+            
+            # 绘制分数
+            score_text = self._font.render(f"Score: {int(self._distance)}", True, BLACK)
+            self._surface.blit(score_text, (10, 10))
+            
+            # 绘制速度
+            speed_text = self._font.render(f"Speed: {self._player_speed:.1f}", True, BLACK)
+            self._surface.blit(speed_text, (10, 50))
         else:
-            # 使用矩形和三角形绘制玩家
-            player_rect = pygame.Rect(self._player_x, self._player_y, PLAYER_WIDTH, PLAYER_HEIGHT)
-            pygame.draw.rect(self._surface, RED, player_rect)
-            
-            # 根据角度绘制方向指示器
-            center_x = self._player_x + PLAYER_WIDTH // 2
-            center_y = self._player_y + PLAYER_HEIGHT // 2
-            
-            # 绘制方向三角形
-            angle_rad = np.radians(self._player_angle)
-            end_x = center_x + 15 * np.sin(angle_rad)
-            end_y = center_y - 15 * np.cos(angle_rad)  # 负号因为y轴向下
-        
-            pygame.draw.line(self._surface, BLUE, (center_x, center_y), (end_x, end_y), 3)
-            pygame.draw.circle(self._surface, BLUE, (int(end_x), int(end_y)), 5)
-        
-        # 绘制分数
-        score_text = self._font.render(f"距离: {int(self._distance)}", True, BLACK)
-        self._surface.blit(score_text, (10, 10))
-        
-        # 绘制速度
-        speed_text = self._font.render(f"速度: {self._player_speed:.1f}", True, BLACK)
-        self._surface.blit(speed_text, (10, 50))
+            # 游戏结束状态，绘制结束界面
+            self._draw_game_over_screen()
     
+    def _draw_game_over_screen(self) -> None:
+        """绘制游戏结束界面"""
+        # 半透明遮罩
+        overlay = pygame.Surface((self._screen_width, self._screen_height), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 128))  # 半透明黑色
+        self._surface.blit(overlay, (0, 0))
+        
+        # 游戏结束标题
+        game_over_text = self._game_over_font_large.render("Game Over", True, WHITE)
+        game_over_rect = game_over_text.get_rect(center=(self._screen_width // 2, self._screen_height // 2 - 80))
+        self._surface.blit(game_over_text, game_over_rect)
+        
+        # 最终得分
+        score_text = self._game_over_font_medium.render(f"Final Score: {int(self._score)}", True, WHITE)
+        score_rect = score_text.get_rect(center=(self._screen_width // 2, self._screen_height // 2 - 20))
+        self._surface.blit(score_text, score_rect)
+        
+        # 重新开始按钮
+        restart_button = pygame.Rect(self._screen_width // 2 - 100, self._screen_height // 2 + 30, 200, 50)
+        pygame.draw.rect(self._surface, GREEN, restart_button, border_radius=10)
+        pygame.draw.rect(self._surface, WHITE, restart_button, 2, border_radius=10)
+        
+        restart_text = self._game_over_font_small.render("Restart", True, BLACK)
+        restart_text_rect = restart_text.get_rect(center=restart_button.center)
+        self._surface.blit(restart_text, restart_text_rect)
+        
+        # 退出按钮
+        quit_button = pygame.Rect(self._screen_width // 2 - 100, self._screen_height // 2 + 100, 200, 50)
+        pygame.draw.rect(self._surface, RED, quit_button, border_radius=10)
+        pygame.draw.rect(self._surface, WHITE, quit_button, 2, border_radius=10)
+        
+        quit_text = self._game_over_font_small.render("Exit", True, WHITE)
+        quit_text_rect = quit_text.get_rect(center=quit_button.center)
+        self._surface.blit(quit_text, quit_text_rect)
+        
+        # 提示信息
+        hint_text = self._game_over_font_small.render("Or Enter R/Esc", True, WHITE)
+        hint_rect = hint_text.get_rect(center=(self._screen_width // 2, self._screen_height // 2 + 170))
+        self._surface.blit(hint_text, hint_rect)
+
     def _update_display(self) -> None:
         """更新显示（仅用于human模式）"""
         if self.render_mode == "human" and self._display is not None:
+            # # 处理事件，包括游戏结束时的按钮点击
+            # for event in pygame.event.get():
+            #     if event.type == pygame.QUIT:
+            #         self.close()
+            #         return
+            #     elif event.type == pygame.MOUSEBUTTONDOWN and self._game_over:
+            #         # 处理游戏结束时的鼠标点击
+            #         mouse_pos = pygame.mouse.get_pos()
+            #         restart_button = pygame.Rect(self._screen_width // 2 - 100, self._screen_height // 2 + 30, 200, 50)
+            #         quit_button = pygame.Rect(self._screen_width // 2 - 100, self._screen_height // 2 + 100, 200, 50)
+                    
+            #         if restart_button.collidepoint(mouse_pos):
+            #             # 触发重新开始（通过外部控制）
+            #             pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_r))
+            #         elif quit_button.collidepoint(mouse_pos):
+            #             # 触发退出
+            #             pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_ESCAPE))
             pygame.event.get()
             self._display.blit(self._surface, [0, 0])
             pygame.display.update()
