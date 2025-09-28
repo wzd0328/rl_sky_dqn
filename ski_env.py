@@ -7,8 +7,8 @@ import os
 from pathlib import Path
 
 # 常量定义
-SCREEN_WIDTH = 640
-SCREEN_HEIGHT = 740
+SCREEN_WIDTH = 628
+SCREEN_HEIGHT = 700
 PLAYER_WIDTH = 80
 PLAYER_HEIGHT = 100
 OBSTACLE_WIDTH = 60
@@ -28,7 +28,7 @@ BLACK = (0, 0, 0)
 RED = (255, 0, 0)
 GREEN = (0, 255, 0)
 BLUE = (0, 0, 255)
-BACKGROUND_COLOR = (135, 206, 235)  # 天蓝色背景，模拟天空
+BACKGROUND_COLOR = (255, 206, 235)  # 背景颜色
 SNOW_COLOR = (255, 250, 250)  # 雪地颜色
 
 class Actions(IntEnum):
@@ -180,7 +180,7 @@ class SkiingRGBEnv(gymnasium.Env):
         
         # 检查游戏结束条件
         # 1. 超出屏幕左右边界
-        if self._player_x < 0 or self._player_x > self._screen_width - PLAYER_WIDTH:
+        if self._player_x < PLAYER_WIDTH // 3 or self._player_x > self._screen_width - PLAYER_WIDTH // 3:
             terminal = True
             reward = -10.0
             self._game_over = True
@@ -197,14 +197,14 @@ class SkiingRGBEnv(gymnasium.Env):
             # 使用圆形碰撞检测
             player_center_x = self._player_x
             player_center_y = self._player_y
-            player_radius = min(PLAYER_WIDTH, PLAYER_HEIGHT) // 2 * 0.6  # 使用80%的半径，让碰撞更合理
+            player_radius = min(PLAYER_WIDTH, PLAYER_HEIGHT) // 2 * 0.7  # 使用70%的半径，让碰撞更合理
 
             for obstacle in self._obstacles:
                 obs_center_x, obs_center_y, obs_type = obstacle
                 obs_radius = min(OBSTACLE_WIDTH, OBSTACLE_HEIGHT) // 2 * 0.7
                 
                 if circle_collision(player_center_x, player_center_y, player_radius,
-                                obs_center_x, obs_center_y, obs_radius):
+                                obs_center_x, obs_center_y, obs_radius) and player_center_y < obs_center_y:
                     terminal = True
                     reward = -10.0
                     self._game_over = True
@@ -238,14 +238,15 @@ class SkiingRGBEnv(gymnasium.Env):
     def reset(self, seed=None, options=None):
         """重置游戏状态"""
         super().reset(seed=seed)
-
+        if options is not None:
+            self._use_images = options["use_images"]
         # 重置游戏状态
         self._game_over = False
 
         self._bg_scroll_offset = 0
 
         # 重置玩家状态
-        self._player_x = self._screen_width // 2 - PLAYER_WIDTH // 2
+        self._player_x = self._screen_width // 2
         self._player_y = 120
         self._player_angle = 0
         self._player_speed = INITIAL_PLAYER_SPEED
@@ -430,7 +431,10 @@ class SkiingRGBEnv(gymnasium.Env):
                 if img_path.exists():
                     player_surface = pygame.image.load(str(img_path)).convert_alpha()
                     # 调整大小到标准尺寸
-                    player_surface = pygame.transform.scale(player_surface, (PLAYER_WIDTH, PLAYER_HEIGHT))
+                    if action == "straight":
+                        player_surface = pygame.transform.scale(player_surface, (PLAYER_WIDTH - 15, PLAYER_HEIGHT))
+                    else:
+                        player_surface = pygame.transform.scale(player_surface, (PLAYER_WIDTH, PLAYER_HEIGHT))
                     player_images[action] = player_surface
             images["player_straight"] = player_images["straight"]
             images["player_left_15"] = player_images["left_15"]
@@ -450,7 +454,7 @@ class SkiingRGBEnv(gymnasium.Env):
             images["obstacle"] = obstacle_images
 
             # 加载背景图像
-            bg_path = assets_dir / "bg_snow.jpg"
+            bg_path = assets_dir / "snow.jpg"
             if bg_path.exists():
                 bg_surface = pygame.image.load(str(bg_path)).convert()
                 bg_surface = pygame.transform.scale(bg_surface, (self._screen_width, self._screen_height))
@@ -464,7 +468,7 @@ class SkiingRGBEnv(gymnasium.Env):
     
     def _make_display(self) -> None:
         """初始化pygame显示"""
-        if self.render_mode == "human":
+        if self.render_mode == "human" or self._use_images:
             self._display = pygame.display.set_mode((self._screen_width, self._screen_height))
             pygame.display.set_caption("滑雪小游戏")
         else:
@@ -485,9 +489,9 @@ class SkiingRGBEnv(gymnasium.Env):
             # pygame.display.flip()
             # self._surface.blit(self._images["background"], (0, 0))
         else:
-            self._surface.fill(BACKGROUND_COLOR)
+            self._surface.fill(SNOW_COLOR)
             # 绘制雪地（底部）
-            pygame.draw.rect(self._surface, SNOW_COLOR, (0, self._screen_height * 0.7, self._screen_width, self._screen_height * 0.3))
+            # pygame.draw.rect(self._surface, SNOW_COLOR, (0, self._screen_height * 0.7, self._screen_width, self._screen_height * 0.3))
         
         if not self._game_over:
             # 绘制障碍物
@@ -520,7 +524,7 @@ class SkiingRGBEnv(gymnasium.Env):
                     player_img = self._images["player_right_45"]
                 else:
                     player_img = self._images["player_straight"]
-                player_rect = player_img.get_rect(center=(self._player_x + PLAYER_WIDTH//2, self._player_y + PLAYER_HEIGHT//2))
+                player_rect = player_img.get_rect(center=(self._player_x, self._player_y))
                 self._surface.blit(player_img, player_rect)
             else:
                 player_surface = pygame.Surface((PLAYER_WIDTH, PLAYER_HEIGHT), pygame.SRCALPHA)
@@ -528,7 +532,7 @@ class SkiingRGBEnv(gymnasium.Env):
                 pygame.draw.circle(player_surface, BLUE, (PLAYER_WIDTH//2, PLAYER_HEIGHT//2), PLAYER_WIDTH//3)
                 # 旋转玩家图像以匹配角度
                 rotated_player = pygame.transform.rotate(player_surface, -self._player_angle)
-                rect = rotated_player.get_rect(center=(self._player_x + PLAYER_WIDTH//2, self._player_y + PLAYER_HEIGHT//2))
+                rect = rotated_player.get_rect(center=(self._player_x, self._player_y))
                 self._surface.blit(rotated_player, rect)
                 # # 使用矩形和三角形绘制玩家
                 # player_rect = pygame.Rect(self._player_x, self._player_y, PLAYER_WIDTH, PLAYER_HEIGHT)
@@ -631,26 +635,26 @@ def make_skiing_env(env_name, **kwargs):
         raise ValueError(f"未知的环境名称: {env_name}")
 
 
-# 处理图像的函数（与Flappy Bird相同的处理流程）
-def process_img(image):
-    """处理RGB图像，返回二值化后的灰度图像"""
-    import cv2
+# # 处理图像的函数（与Flappy Bird相同的处理流程）
+# def process_img(image):
+#     """处理RGB图像，返回二值化后的灰度图像"""
+#     import cv2
     
-    # 确保图像是numpy数组
-    if isinstance(image, tuple):
-        # 如果传入的是(obs, info)元组，取第一个元素
-        image = image[0]
+#     # 确保图像是numpy数组
+#     if isinstance(image, tuple):
+#         # 如果传入的是(obs, info)元组，取第一个元素
+#         image = image[0]
     
-    # 调整大小
-    image = cv2.resize(image, (128, 128))
+#     # 调整大小
+#     image = cv2.resize(image, (128, 128))
     
-    # 转换为灰度图
-    image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+#     # 转换为灰度图
+#     image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
     
-    # 二值化处理（阈值199，大于阈值的设为1，其他设为0）
-    _, binary_image = cv2.threshold(image, 199, 1, cv2.THRESH_BINARY_INV)
+#     # 二值化处理（阈值199，大于阈值的设为1，其他设为0）
+#     _, binary_image = cv2.threshold(image, 199, 1, cv2.THRESH_BINARY_INV)
     
-    return binary_image
+#     return binary_image
 
 
 # 测试代码
