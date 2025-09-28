@@ -88,35 +88,16 @@ def training(arg, agent, env, save_path, final_path, reward_curve_path):
 
     best_reward = -float('inf')
 
-    # 调试：确认 arg.episodes 是整数
-    print(f"arg.episodes: {arg.episodes}, type: {type(arg.episodes)}")
-
     for episode in range(arg.episodes):
         print(f"Starting episode {episode}")
 
-        # 调试：确认 episode 是整数
-        if not isinstance(episode, int):
-            print(f"Error: episode is not an integer! Type: {type(episode)}")
-            continue  # 如果 episode 不是整数，跳过这一轮训练
-
         # 重置环境
         reset_result = env.reset()
-
-        # 调试：检查返回值类型
-        print(f"reset_result: {reset_result}, type: {type(reset_result)}")
 
         if isinstance(reset_result, tuple):
             raw_frame, info = reset_result
         else:
             raw_frame, info = reset_result, {}
-
-        # 调试：确保 raw_frame 是 numpy 数组
-        if not isinstance(raw_frame, np.ndarray):
-            print(f"Error: raw_frame is not of type np.ndarray. Type: {type(raw_frame)}")
-            continue  # 如果 raw_frame 不是期望的类型，跳过这一轮训练
-
-        print(f"raw_frame type: {type(raw_frame)}")
-        print(f"info type: {type(info)}")
 
         # 初始化观测值
         obs = _make_init_obs(raw_frame)
@@ -128,9 +109,6 @@ def training(arg, agent, env, save_path, final_path, reward_curve_path):
 
         # 开始训练过程
         while not done:
-            # 调试：确保 arg.epsilon 是一个数值
-            print(f"epsilon: {arg.epsilon}, type: {type(arg.epsilon)}")
-
             if random.random() < arg.epsilon:
                 action = random.randint(0, arg.action_dim - 1)
             else:
@@ -138,20 +116,11 @@ def training(arg, agent, env, save_path, final_path, reward_curve_path):
 
             step_result = env.step(action)
 
-            # 调试：检查 step_result 的类型和长度
-            print(f"step_result: {step_result}, type: {type(step_result)}, length: {len(step_result)}")
-
             if len(step_result) == 5:
                 next_frame, reward, terminated, truncated, info = step_result
                 done = terminated or truncated
             else:
                 next_frame, reward, done, info = step_result
-
-            # 确保解包成功，调试每个变量
-            print(f"next_frame type: {type(next_frame)}")
-            print(f"reward type: {type(reward)}")
-            print(f"terminated type: {type(terminated)}")
-            print(f"info type: {type(info)}")
 
             if done:
                 reward -= 100  # 终止惩罚
@@ -183,8 +152,6 @@ def training(arg, agent, env, save_path, final_path, reward_curve_path):
                 batch = agent.Buffer.sample(arg.updatebatch)
                 if batch is not None:
                     loss = agent.update(batch)
-                    # 调试：检查 loss 的类型
-                    print(f"loss: {loss}, type: {type(loss)}")
                     if loss is not None and episode % 100 == 0:
                         print(f"Episode {episode}, Loss: {loss:.4f}")
 
