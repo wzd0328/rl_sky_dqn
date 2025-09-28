@@ -41,32 +41,6 @@ class params():
         self.learning_rate = 0.001  # 调整学习率
         self.agent_type = "DQN"  # 初始化
 
-# def create_agent(env, args, agent_type="DQN"):
-#     # 使用 args 中定义的 obs_dim（因为是图像堆叠）
-#     # state_dim 是 (channels, height, width) 的元组，例如 (4, 128, 128)
-#     # 对于卷积网络的 in_channels，我们只需要通道数，即元组的第一个元素
-#     input_channels = args.obs_dim[0] # 提取通道数，即 4
-#     act_dim = args.action_dim
-
-#     if agent_type == "DQN":
-#         from agents.DQN_agent import DQN
-#         from networks.QNet import Q_net
-#         # 将 input_channels 传递给 Q_net，而不是整个 state_dim 元组
-#         q_net = Q_net(input_channels, act_dim).to(args.cuda) 
-#         agent = DQN(env, args, q_net=q_net)
-
-#     elif agent_type == "NoisyDQN":
-#         from agents.noisydqn_agent import NoisyDQN
-#         from networks.NoisyQNet import NoisyQNet
-#         # 如果 NoisyQNet 接收的参数与 Q_net 结构类似，也需修改
-#         # 同样将 input_channels 传递给 NoisyQNet
-#         q_net = NoisyQNet(input_channels, act_dim).to(args.cuda) 
-#         agent = NoisyDQN(env, args, q_net=q_net)
-
-#     else:
-#         raise ValueError(f"未知的 Agent 类型: {agent_type}")
-#     return agent
-
 def create_agent(env, args, agent_type="DQN"):
     # 使用 args 中定义的 obs_dim（因为是图像堆叠）
     act_dim = args.action_dim # 这个仍然需要，但DQN内部也会从arg中获取
