@@ -92,7 +92,7 @@ class SkiingRGBEnv(gymnasium.Env):
 
         if render_mode == "human":
             # 加载并播放背景音乐
-            pygame.mixer.music.load('./music/troublemaker.mp3')  # 确保路径正确
+            pygame.mixer.music.load('./assets/music/troublemaker.mp3')  # 确保路径正确
             pygame.mixer.music.play(-1)  # -1表示循环播放
 
         self._font = pygame.font.Font(None, 36)
@@ -423,7 +423,7 @@ class SkiingRGBEnv(gymnasium.Env):
             # images["obstacle"] = obstacle_surface
 
             # 加载玩家5种动作图像
-            assets_dir = Path("./figure")
+            assets_dir = Path("./assets/figure")
             player_images = {}
             actions = ["straight", "left_15", "left_45", "right_15", "right_45"]
             for action in actions:

@@ -1,15 +1,16 @@
-import sys, os, random, numpy as np, cv2, torch, torch.nn as nn
-from collections import deque
-from ski_env import make_skiing_env
-import time
+import sys
+import os
+import random
+import numpy as np
 import cv2
 import torch
-import numpy as np
-from DQN_agent import DQN
+import torch.nn as nn
 import matplotlib.pyplot as plt
 import pygame
-from human_player import HumanPlayer
+import time
 
+from envs.ski_env import make_skiing_env
+from utils.human_player import HumanPlayer
 def process_img(image):
     """处理图像为的二值图"""
     if isinstance(image, tuple):  # 如果是(obs, info)元组
@@ -38,15 +39,57 @@ class params():
         self.epsilon_decay = 0.995  # 探索率衰减
         self.Q_NETWORK_ITERATION = 50  # 目标网络更新频率
         self.learning_rate = 0.001  # 调整学习率
+        self.agent_type = "DQN"  # 初始化
 
-def load_state(arg, agent):
+# def create_agent(env, args, agent_type="DQN"):
+#     # 使用 args 中定义的 obs_dim（因为是图像堆叠）
+#     # state_dim 是 (channels, height, width) 的元组，例如 (4, 128, 128)
+#     # 对于卷积网络的 in_channels，我们只需要通道数，即元组的第一个元素
+#     input_channels = args.obs_dim[0] # 提取通道数，即 4
+#     act_dim = args.action_dim
+
+#     if agent_type == "DQN":
+#         from agents.DQN_agent import DQN
+#         from networks.QNet import Q_net
+#         # 将 input_channels 传递给 Q_net，而不是整个 state_dim 元组
+#         q_net = Q_net(input_channels, act_dim).to(args.cuda) 
+#         agent = DQN(env, args, q_net=q_net)
+
+#     elif agent_type == "NoisyDQN":
+#         from agents.noisydqn_agent import NoisyDQN
+#         from networks.NoisyQNet import NoisyQNet
+#         # 如果 NoisyQNet 接收的参数与 Q_net 结构类似，也需修改
+#         # 同样将 input_channels 传递给 NoisyQNet
+#         q_net = NoisyQNet(input_channels, act_dim).to(args.cuda) 
+#         agent = NoisyDQN(env, args, q_net=q_net)
+
+#     else:
+#         raise ValueError(f"未知的 Agent 类型: {agent_type}")
+#     return agent
+
+def create_agent(env, args, agent_type="DQN"):
+    # 使用 args 中定义的 obs_dim（因为是图像堆叠）
+    act_dim = args.action_dim # 这个仍然需要，但DQN内部也会从arg中获取
+    if agent_type == "DQN":
+        from agents.DQN_agent import DQN
+        agent = DQN(env, args) # 修正：DQN 的 __init__ 签名是 (self, env, arg)
+    elif agent_type == "NoisyDQN":
+        from agents.noisydqn_agent import NoisyDQN
+        agent = NoisyDQN(env, args) 
+
+    else:
+        raise ValueError(f"未知的 Agent 类型: {agent_type}")
+    return agent
+
+def load_state(path, agent):
     """加载预训练模型"""
-    modelpath = 'ski_dqn_best.pkl'
-    if os.path.exists(modelpath):
-        state_file = torch.load(modelpath, map_location=arg.cuda)
-        agent.Net.load_state_dict(state_file)
-        agent.targetNet.load_state_dict(state_file)
-        print("模型加载成功!")
+    if os.path.exists(path):
+        state_dict = torch.load(path, map_location=agent.arg.cuda)
+        agent.Net.load_state_dict(state_dict)
+        agent.targetNet.load_state_dict(state_dict)
+        print(f"模型加载成功: {path}")
+    else:
+        print(f"未找到模型文件: {path}")
 
 def _process_frame(frame):
     """处理单帧图像"""
@@ -64,58 +107,86 @@ def _roll_obs(prev_obs, new_frame):
     new_frame = _process_frame(new_frame)[np.newaxis]  # (1,H,W)
     return np.concatenate([new_frame, prev_obs[:-1]], axis=0)
 
-def training(arg, agent, env):
-    """训练函数"""
+def training(arg, agent, env, save_path, final_path, reward_curve_path):
+    """训练函数（支持自定义保存路径）"""
     reward_curve = []
-    fig, ax = plt.subplots()
-    
-    # 记录最佳表现
+    fig, ax = plt.subplots(figsize=(10, 6))
+
     best_reward = -float('inf')
 
+    # 调试：确认 arg.episodes 是整数
+    print(f"arg.episodes: {arg.episodes}, type: {type(arg.episodes)}")
+
     for episode in range(arg.episodes):
+        print(f"Starting episode {episode}")
+
+        # 调试：确认 episode 是整数
+        if not isinstance(episode, int):
+            print(f"Error: episode is not an integer! Type: {type(episode)}")
+            continue  # 如果 episode 不是整数，跳过这一轮训练
+
         # 重置环境
-        # print(env._use_images)
-        # reset_result = env.reset(options={"use_images": False})
-        # print(env._use_images)
         reset_result = env.reset()
+
+        # 调试：检查返回值类型
+        print(f"reset_result: {reset_result}, type: {type(reset_result)}")
+
         if isinstance(reset_result, tuple):
             raw_frame, info = reset_result
         else:
             raw_frame, info = reset_result, {}
-            
+
+        # 调试：确保 raw_frame 是 numpy 数组
+        if not isinstance(raw_frame, np.ndarray):
+            print(f"Error: raw_frame is not of type np.ndarray. Type: {type(raw_frame)}")
+            continue  # 如果 raw_frame 不是期望的类型，跳过这一轮训练
+
+        print(f"raw_frame type: {type(raw_frame)}")
+        print(f"info type: {type(info)}")
+
+        # 初始化观测值
         obs = _make_init_obs(raw_frame)
         done = False
         total_reward = 0
         step_count = 0
 
-        # 存放轨迹数据
         traj = dict(obs=[], action=[], reward=[], next_obs=[], done=[])
 
+        # 开始训练过程
         while not done:
-            # ε-贪婪策略选择动作
+            # 调试：确保 arg.epsilon 是一个数值
+            print(f"epsilon: {arg.epsilon}, type: {type(arg.epsilon)}")
+
             if random.random() < arg.epsilon:
                 action = random.randint(0, arg.action_dim - 1)
             else:
                 action = agent.get_action(obs)
 
-            # 执行动作
             step_result = env.step(action)
-            if len(step_result) == 5:  # Gymnasium返回5个值
+
+            # 调试：检查 step_result 的类型和长度
+            print(f"step_result: {step_result}, type: {type(step_result)}, length: {len(step_result)}")
+
+            if len(step_result) == 5:
                 next_frame, reward, terminated, truncated, info = step_result
                 done = terminated or truncated
             else:
                 next_frame, reward, done, info = step_result
-            
+
+            # 确保解包成功，调试每个变量
+            print(f"next_frame type: {type(next_frame)}")
+            print(f"reward type: {type(reward)}")
+            print(f"terminated type: {type(terminated)}")
+            print(f"info type: {type(info)}")
+
             if done:
-                reward -= 100  # 终止时的惩罚
+                reward -= 100  # 终止惩罚
 
             total_reward += reward
             step_count += 1
 
-            # 处理下一帧观测
             next_obs = _roll_obs(obs, next_frame)
 
-            # 存储经验
             traj['obs'].append(obs.copy())
             traj['action'].append(action)
             traj['reward'].append(reward)
@@ -124,157 +195,135 @@ def training(arg, agent, env):
 
             obs = next_obs
 
-            # 限制单幕步数，防止无限循环
             if step_count > 1000:
                 break
 
-        # 存入经验池
         if len(traj['obs']) > 0:
             agent.Buffer.store_data(traj, len(traj['obs']))
 
-        # 衰减探索率
         arg.epsilon = max(arg.epsilon_min, arg.epsilon * arg.epsilon_decay)
 
-        # 训练网络（当经验池有足够数据时）
+        # 如果 buffer 大小超过 1000，则进行更新
         if hasattr(agent.Buffer, 'ptr') and agent.Buffer.ptr > 1000:
-            for _ in range(10):  # 每幕训练多次
+            for _ in range(10):
                 batch = agent.Buffer.sample(arg.updatebatch)
                 if batch is not None:
                     loss = agent.update(batch)
+                    # 调试：检查 loss 的类型
+                    print(f"loss: {loss}, type: {type(loss)}")
                     if loss is not None and episode % 100 == 0:
                         print(f"Episode {episode}, Loss: {loss:.4f}")
 
-        # 定期评估和保存
+        # 每 50 轮进行一次性能测试和模型保存
         if episode % 50 == 0:
             original_render_mode = env.render_mode
             env.close()
-            test_env = make_skiing_env("Skiing-rgb-v0", render_mode=None)  # 测试时不显示窗口
-            
-            avg_reward = test_performance(arg, agent, test_env)
-            reward_curve.append(avg_reward)
-            
-            print(f'Episode {episode:>6} | '
-                  f'Test Reward: {avg_reward:.2f} | '
-                  f'Epsilon: {arg.epsilon:.3f} | '
-                  f'Steps: {step_count}')
+            test_env = make_skiing_env("Skiing-rgb-v0", render_mode=None)
 
-            # 更新最佳模型
+            avg_reward = test_performance(arg, agent, test_env, model_path=None)  # 已加载
+            reward_curve.append(avg_reward)
+
+            print(f'Episode {episode:>6} | Test Reward: {avg_reward:.2f} | '
+                  f'Epsilon: {arg.epsilon:.3f} | Steps: {step_count}')
+
             if avg_reward > best_reward:
                 best_reward = avg_reward
-                torch.save(agent.Net.state_dict(), 'ski_dqn_best.pkl')
-                print(f"新的最佳模型已保存! 奖励: {best_reward:.2f}")
+                torch.save(agent.Net.state_dict(), save_path)
+                print(f"🏆 新的最佳模型已保存! 奖励: {best_reward:.2f}")
 
-            # 关闭测试环境，重新打开训练环境
             test_env.close()
-            if original_render_mode is not None:
-                env = make_skiing_env("Skiing-rgb-v0", render_mode=original_render_mode)
-            else:
-                env = make_skiing_env("Skiing-rgb-v0", render_mode=None)
+            env = make_skiing_env("Skiing-rgb-v0", render_mode=original_render_mode)
 
-            # 更新奖励曲线图
             ax.clear()
             ax.plot(reward_curve, 'b-', linewidth=2)
             ax.set_xlabel('Episode (x50)')
             ax.set_ylabel('Average Reward')
-            ax.set_title('Training Progress')
+            ax.set_title(f'Training Progress - {arg.agent_type}')
             ax.grid(True, alpha=0.3)
             plt.tight_layout()
-            plt.savefig('reward_curve.jpg', dpi=150, bbox_inches='tight')
+            plt.savefig(reward_curve_path, dpi=150, bbox_inches='tight')
 
-    # 训练结束保存最终模型
-    torch.save(agent.Net.state_dict(), 'ski_dqn_final.pkl')
-    print("训练完成!最终模型已保存。")
+    torch.save(agent.Net.state_dict(), final_path)
+    print(f"✅ 训练完成! 最终模型已保存至: {final_path}")
 
-def test_performance(arg, agent, test_env=None):
-    """测试智能体性能"""
+def test_performance(arg, agent, test_env=None, model_path=None):
+    """测试性能（支持加载指定模型）"""
+    if model_path:
+        load_state(model_path, agent)
+
     if test_env is None:
         test_env = make_skiing_env("Skiing-rgb-v0", render_mode=None)
-    
+
     rewards = []
-    
     for _ in range(arg.test_episodes):
         reset_result = test_env.reset()
         if isinstance(reset_result, tuple):
             raw_frame, info = reset_result
         else:
             raw_frame, info = reset_result, {}
-            
         obs = _make_init_obs(raw_frame)
         done = False
         ep_reward = 0
         step_count = 0
-        
+
         while not done:
-            action = agent.greedy_action(obs)  # 贪婪策略
-            
+            action = agent.greedy_action(obs)
             step_result = test_env.step(action)
             if len(step_result) == 5:
-                next_frame, reward, terminated, truncated, info = step_result
+                _, reward, terminated, truncated, _ = step_result
                 done = terminated or truncated
             else:
-                next_frame, reward, done, info = step_result
-                
-            obs = _roll_obs(obs, next_frame)
+                _, reward, done, _ = step_result
+            obs = _roll_obs(obs, step_result[0])
             ep_reward += reward
             step_count += 1
-            
-            # 限制测试步数
             if step_count > 500:
                 break
-                
         rewards.append(ep_reward)
-    
-    if test_env != env:  # 如果是临时创建的测试环境，关闭它
+
+    if test_env:
         test_env.close()
-    
+
     return np.mean(rewards)
 
-def demo_play(arg, agent, env):
-    """演示模式：使用训练好的模型进行游戏（带窗口显示）"""
-    load_state(arg, agent)
-    arg.epsilon = 0.0  # 完全贪婪
-    
+def demo_play(arg, agent, env, model_path=None):
+    """演示模式（带窗口）"""
+    if model_path:
+        load_state(model_path, agent)  # 传入路径
+    arg.epsilon = 0.0
+
     reset_result = env.reset()
     if isinstance(reset_result, tuple):
         raw_frame, info = reset_result
     else:
         raw_frame, info = reset_result, {}
-        
     obs = _make_init_obs(raw_frame)
     done = False
     total_reward = 0
     step_count = 0
-    
-    print("开始演示! 按Ctrl+C退出")
-    
+
+    print("🎮 开始演示! 按 ESC 退出，R 重新开始")
+
     try:
         while True:
             for event in pygame.event.get():
-                if event.type == pygame.QUIT:
+                if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
                     return
-                elif event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_ESCAPE:
-                        print("游戏退出")
-                        return
-                    elif event.key == pygame.K_r and done:
-                        # 重新开始游戏
-                        reset_result = env.reset()
-                        if isinstance(reset_result, tuple):
-                            raw_frame, info = reset_result
-                        else:
-                            raw_frame, info = reset_result, {}
-                        obs = _make_init_obs(raw_frame)
-                        done = False
-                        total_reward = 0
-                        step_count = 0
-                        print("游戏重新开始!")
-                # 处理鼠标点击（用于游戏结束界面的按钮）
+                elif event.type == pygame.KEYDOWN and event.key == pygame.K_r and done:
+                    reset_result = env.reset()
+                    if isinstance(reset_result, tuple):
+                        raw_frame, info = reset_result
+                    else:
+                        raw_frame, info = reset_result, {}
+                    obs = _make_init_obs(raw_frame)
+                    done = False
+                    total_reward = 0
+                    step_count = 0
                 elif event.type == pygame.MOUSEBUTTONDOWN and done:
                     mouse_pos = event.pos
                     restart_button = pygame.Rect(env._screen_width // 2 - 100, env._screen_height // 2 + 30, 200, 50)
                     quit_button = pygame.Rect(env._screen_width // 2 - 100, env._screen_height // 2 + 100, 200, 50)
                     if restart_button.collidepoint(mouse_pos):
-                        # 触发重新开始
                         reset_result = env.reset()
                         if isinstance(reset_result, tuple):
                             raw_frame, info = reset_result
@@ -284,50 +333,31 @@ def demo_play(arg, agent, env):
                         done = False
                         total_reward = 0
                         step_count = 0
-                        print("游戏重新开始!")
                     elif quit_button.collidepoint(mouse_pos):
-                        # 触发退出游戏
-                        print("游戏退出")
                         return
+
             if not done:
                 action = agent.greedy_action(obs)
-                
                 step_result = env.step(action)
                 if len(step_result) == 5:
                     next_frame, reward, terminated, truncated, info = step_result
                     done = terminated or truncated
                 else:
                     next_frame, reward, done, info = step_result
-                    
                 obs = _roll_obs(obs, next_frame)
                 total_reward += reward
                 step_count += 1
-                
-                # 显示当前信息
+
                 if step_count % 50 == 0:
                     print(f"步数: {step_count}, 累计奖励: {total_reward:.1f}")
-                
-                # 控制演示速度
-                time.sleep(0.01)  # 100 FPS
-                
-                if done:
-                    final_score = info["score"]
-                    print(f"演示结束! 总步数: {step_count}, 最终得分: {final_score}")
-                    # break
-                
-            # # 限制演示时间
-            # if step_count > 1000:
-            #     print(f"演示达到最大步数! 最终得分: {total_reward}")
-            #     break
-                
-    except KeyboardInterrupt:
-        print(f"\n演示被用户中断! 最终得分: {total_reward}")
-    
-    # # 询问是否重新开始演示
-    # restart = input("是否重新开始演示? (y/n): ").strip().lower()
-    # if restart == 'y':
-    #     demo_play(arg, agent, env)
 
+                time.sleep(0.01)
+
+                if done:
+                    final_score = info.get("score", total_reward)
+                    print(f"🎯 演示结束! 总步数: {step_count}, 最终得分: {final_score}")
+    except KeyboardInterrupt:
+        print(f"\n⏹️ 演示被用户中断! 最终得分: {total_reward}")
 def human_play_mode(env):
     """人工玩法模式"""
     # 创建人工玩家
@@ -423,97 +453,99 @@ def human_play_mode(env):
     finally:
         env.close()
 
-def test_with_display(arg, agent):
-    """带窗口显示的测试模式"""
-    load_state(arg, agent)
-    
-    # 创建带窗口的测试环境
+def test_with_display(arg, agent, model_path=None):
+    """带窗口的测试模式"""
+    load_state(model_path, agent)
     test_env = make_skiing_env("Skiing-rgb-v0", render_mode="human", debug=True)
-    
     rewards = []
-    
+
     for episode in range(arg.test_episodes):
         reset_result = test_env.reset()
         if isinstance(reset_result, tuple):
             raw_frame, info = reset_result
         else:
             raw_frame, info = reset_result, {}
-            
         obs = _make_init_obs(raw_frame)
         done = False
         ep_reward = 0
         step_count = 0
-        
-        print(f"开始测试第 {episode + 1}/{arg.test_episodes} 幕...")
-        
+
+        print(f"▶️ 开始测试第 {episode + 1}/{arg.test_episodes} 幕...")
+
         while not done:
             action = agent.greedy_action(obs)
-            
             step_result = test_env.step(action)
             if len(step_result) == 5:
                 next_frame, reward, terminated, truncated, info = step_result
                 done = terminated or truncated
             else:
                 next_frame, reward, done, info = step_result
-                
             obs = _roll_obs(obs, next_frame)
             ep_reward += reward
             step_count += 1
-            
-            # 慢速显示，便于观察
             time.sleep(0.03)
-            
-            # 限制测试步数
             if step_count > 500:
                 break
-                
+
         rewards.append(ep_reward)
-        print(f"第 {episode + 1} 幕结束: 奖励={ep_reward:.1f}, 步数={step_count}")
-        
-        # 幕间暂停
+        print(f"🔚 第 {episode + 1} 幕结束: 奖励={ep_reward:.1f}, 步数={step_count}")
         if episode < arg.test_episodes - 1:
-            print("准备下一幕...")
             time.sleep(2)
-    
+
     test_env.close()
-    
     avg_reward = np.mean(rewards)
-    print(f"\n测试完成! 平均奖励: {avg_reward:.2f}")
+    print(f"\n📊 测试完成! 平均奖励: {avg_reward:.2f}")
     return avg_reward
 
 if __name__ == '__main__':
-    # 选择模式
-    # 初始化环境和智能体 - 训练时不需要窗口，测试和演示时需要
-    mode = input("选择模式 (1-训练, 2-测试, 3-演示, 4-游玩): ").strip()
+    # ==================== 配置区域====================
+    AGENT_TYPE = "DQN"  # 可选: "DQN", "NoisyDQN"
+    MODEL_SAVE_PATH = f"models/ski_{AGENT_TYPE.lower()}_best.pkl"
+    MODEL_FINAL_PATH = f"models/ski_{AGENT_TYPE.lower()}_final.pkl"
+    REWARD_CURVE_PATH = f"results/reward_curve_{AGENT_TYPE.lower()}.jpg"
+
+    os.makedirs("models", exist_ok=True)
+    os.makedirs("results", exist_ok=True)
+
     arg = params()
-    if mode == "1":
-        print("开始训练模式...")
-        # 训练模式：使用rgb_array模式提高效率
-        # env = make_skiing_env("Skiing-rgb-v0", render_mode=None, use_images=False)  # 无窗口渲染
-        env = make_skiing_env("Skiing-rgb-v0", render_mode="human")  # 有窗口渲染，便于调试
-        agent = DQN(env, arg)
-        load_state(arg, agent)  # 加载已有模型继续训练
-        training(arg, agent, env)
-    elif mode == "2":
-        print("开始测试模式（带窗口显示）...")
+    arg.agent_type = AGENT_TYPE
+
+    mode = input("选择模式 (1-训练, 2-测试, 3-演示, 4-游玩): ").strip()
+
+    # try:
+    if mode == "1":  # 训练
+        print(f"🚀 开始训练 {AGENT_TYPE}...")
+        env = make_skiing_env("Skiing-rgb-v0", render_mode=None)
+        agent = create_agent(env, arg, AGENT_TYPE)
+        # load_state(MODEL_SAVE_PATH, agent)
+        training(arg, agent, env, MODEL_SAVE_PATH, MODEL_FINAL_PATH, REWARD_CURVE_PATH)
+
+    elif mode == "2":  # 测试（带显示）
+        print(f"🧪 开始测试 {AGENT_TYPE}（带窗口）...")
         env = make_skiing_env("Skiing-rgb-v0", render_mode="human", debug=True)
-        agent = DQN(env, arg)
-        test_with_display(arg, agent)
-    elif mode == "3":
-        print("开始演示模式...")
+        agent = create_agent(env, arg, AGENT_TYPE)
+        test_with_display(arg, agent, MODEL_SAVE_PATH)
+
+    elif mode == "3":  # 演示
+        print(f"🎬 开始演示 {AGENT_TYPE}...")
         env = make_skiing_env("Skiing-rgb-v0", render_mode="human", debug=True)
-        agent = DQN(env, arg)
-        demo_play(arg, agent, env)
-    elif mode == "4":
-        print("人工玩家模式...")
+        agent = create_agent(env, arg, AGENT_TYPE)
+        demo_play(arg, agent, env, MODEL_SAVE_PATH)
+
+    elif mode == "4":  # 人工游玩
+        print("🎮 人工玩家模式...")
         env = make_skiing_env("Skiing-rgb-v0", render_mode="human", debug=True)
         human_play_mode(env)
+
     else:
-        print("开始训练模式...")
-        # 训练模式：使用rgb_array模式提高效率
-        env = make_skiing_env("Skiing-rgb-v0", render_mode=None)  # 无窗口渲染
-        agent = DQN(env, arg)
-        load_state(arg, agent)  # 加载已有模型继续训练
-        training(arg, agent, env)
-    
-    env.close()
+        print("⚠️ 无效输入，启动训练模式...")
+        env = make_skiing_env("Skiing-rgb-v0", render_mode=None)
+        agent = create_agent(env, arg, AGENT_TYPE)
+        load_state(MODEL_SAVE_PATH, agent)
+        training(arg, agent, env, MODEL_SAVE_PATH, MODEL_FINAL_PATH, REWARD_CURVE_PATH)
+
+    # except Exception as e:
+    #     print(f"❌ 程序异常: {e}")
+    # finally:
+    #     pygame.quit()
+    #     cv2.destroyAllWindows()

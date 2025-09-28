@@ -2,8 +2,8 @@ import random
 import sys
 import numpy as np
 import torch
-from QNet import Q_net
-from replay_memory import Replay_Memory
+from networks.QNet import Q_net
+from utils.replay_memory import Replay_Memory
 import torch.nn as nn
 class DQN():
     def __init__(self,env,arg):
@@ -45,3 +45,5 @@ class DQN():
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
+
+

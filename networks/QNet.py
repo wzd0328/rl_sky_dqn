@@ -1,5 +1,7 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+
 class Q_net(nn.Module):
     def __init__(self, Dim_in, act_dim):
         super().__init__()
