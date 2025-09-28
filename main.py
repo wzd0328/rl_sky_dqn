@@ -23,12 +23,12 @@ def process_img(image):
 class params():
     def __init__(self):
         self.gamma = 0.99
-        self.action_dim = 5  # 5种动作
+        self.action_dim = 6  # 5种动作
         self.obs_dim = (4, 84, 84)  # 4帧堆叠，84x84
         self.capacity = 10000  # 增大经验池容量
         self.cuda = 'cuda:0' if torch.cuda.is_available() else 'cpu'
         self.Frames = 4
-        self.episodes = int(1e3)  # 减少总幕数进行测试
+        self.episodes = int(300)  # 减少总幕数进行测试
         self.updatebatch = 512  # 增大批次大小
         self.test_episodes = 10  # 减少测试幕数
         self.epsilon = 0.1  # 初始探索率
@@ -484,7 +484,8 @@ if __name__ == '__main__':
     if mode == "1":
         print("开始训练模式...")
         # 训练模式：使用rgb_array模式提高效率
-        env = make_skiing_env("Skiing-rgb-v0", render_mode=None)  # 无窗口渲染
+        env = make_skiing_env("Skiing-rgb-v0", render_mode=None, use_images=False)  # 无窗口渲染
+        # env = make_skiing_env("Skiing-rgb-v0", render_mode="human")
         agent = DQN(env, arg)
         load_state(arg, agent)  # 加载已有模型继续训练
         training(arg, agent, env)
