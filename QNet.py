@@ -8,10 +8,10 @@ class Q_net(nn.Module):
         self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=(4,4), stride=(2,2)) # (20-4)/2 +1 =9
         self.maxpool2 = nn.MaxPool2d(2, stride=2,padding=1)
         self.conv3 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=(3,3), stride=(1,1)) # (9-3)/1 +1 =7  7*7*64
-        self.fc1   = nn.Linear(in_features=256,out_features=256)
-        self.fc2   = nn.Linear(in_features=256,out_features=act_dim)
+        self.fc1   = nn.Linear(in_features=576,out_features=576)
+        self.fc2   = nn.Linear(in_features=576,out_features=act_dim)
         self.Relu =nn.ReLU()
-    def forward(self,x): # inshape (batch,x,y,channel)
+    def forward(self,x): # inshape (batch,channel,x,y,channel)
         x = self.conv1(x)
         x=  self.Relu(x)
         #

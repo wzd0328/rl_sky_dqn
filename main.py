@@ -11,20 +11,22 @@ import pygame
 from human_player import HumanPlayer
 
 def process_img(image):
-    """处理图像为84x84的二值图"""
+    """处理图像为的二值图"""
     if isinstance(image, tuple):  # 如果是(obs, info)元组
         image = image[0]
-    image = cv2.resize(image, (84, 84))
+    image = cv2.resize(image, (128, 128))
     image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)  # 修改为RGB转灰度
-    _, image = cv2.threshold(image, 127, 255, cv2.THRESH_BINARY)
+    _, image = cv2.threshold(image, 230, 255, cv2.THRESH_BINARY)
     image = image / 255.0  # 归一化到0-1
+    # 显示image
+    cv2.imshow('Processed Frame', image)
     return image
 
 class params():
     def __init__(self):
         self.gamma = 0.99
         self.action_dim = 6  # 5种动作
-        self.obs_dim = (4, 84, 84)  # 4帧堆叠，84x84
+        self.obs_dim = (4, 128, 128)  # 4帧堆叠
         self.capacity = 10000  # 增大经验池容量
         self.cuda = 'cuda:0' if torch.cuda.is_available() else 'cpu'
         self.Frames = 4
@@ -55,11 +57,11 @@ def _process_frame(frame):
 def _make_init_obs(raw_frame):
     """创建初始观测（4帧堆叠）"""
     frame = _process_frame(raw_frame)
-    return np.stack([frame] * 4, axis=0)  # shape=(4,84,84)
+    return np.stack([frame] * 4, axis=0)  # shape=(4,H,W)
 
 def _roll_obs(prev_obs, new_frame):
     """滚动更新观测帧"""
-    new_frame = _process_frame(new_frame)[np.newaxis]  # (1,84,84)
+    new_frame = _process_frame(new_frame)[np.newaxis]  # (1,H,W)
     return np.concatenate([new_frame, prev_obs[:-1]], axis=0)
 
 def training(arg, agent, env):
@@ -72,6 +74,9 @@ def training(arg, agent, env):
 
     for episode in range(arg.episodes):
         # 重置环境
+        # print(env._use_images)
+        # reset_result = env.reset(options={"use_images": False})
+        # print(env._use_images)
         reset_result = env.reset()
         if isinstance(reset_result, tuple):
             raw_frame, info = reset_result
@@ -484,8 +489,8 @@ if __name__ == '__main__':
     if mode == "1":
         print("开始训练模式...")
         # 训练模式：使用rgb_array模式提高效率
-        env = make_skiing_env("Skiing-rgb-v0", render_mode=None, use_images=False)  # 无窗口渲染
-        # env = make_skiing_env("Skiing-rgb-v0", render_mode="human")
+        # env = make_skiing_env("Skiing-rgb-v0", render_mode=None, use_images=False)  # 无窗口渲染
+        env = make_skiing_env("Skiing-rgb-v0", render_mode="human")  # 有窗口渲染，便于调试
         agent = DQN(env, arg)
         load_state(arg, agent)  # 加载已有模型继续训练
         training(arg, agent, env)
