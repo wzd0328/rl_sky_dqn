@@ -7,19 +7,20 @@ import os
 from pathlib import Path
 
 # 常量定义
-SCREEN_WIDTH = 288
-SCREEN_HEIGHT = 512
-PLAYER_WIDTH = 40
-PLAYER_HEIGHT = 40
-OBSTACLE_WIDTH = 30
-OBSTACLE_HEIGHT = 30
-INITIAL_PLAYER_SPEED = 2
-MAX_PLAYER_SPEED = 10
+SCREEN_WIDTH = 640
+SCREEN_HEIGHT = 740
+PLAYER_WIDTH = 80
+PLAYER_HEIGHT = 100
+OBSTACLE_WIDTH = 60
+OBSTACLE_HEIGHT = 80
+INITIAL_PLAYER_SPEED = 4
+MAX_PLAYER_SPEED = 15
 ACCELERATION_RATE = 0.001
 OBSTACLE_GENERATION_RATE_INITIAL = 0.02
 OBSTACLE_GENERATION_RATE_MAX = 0.1
 # OBSTACLE_VEL_Y = 3
 PLAYER_ANGLE_CHANGE = 15  # 角度变化量
+ACTION_CONSISTENCY_REWARD = 0.02  # 动作平滑性奖励
 
 # 颜色定义
 WHITE = (255, 255, 255)
@@ -32,7 +33,7 @@ SNOW_COLOR = (255, 250, 250)  # 雪地颜色
 
 class Actions(IntEnum):
     """滑雪者的可能动作-5种"""
-    STRAIGHT, LEFT_15, LEFT_45, RIGHT_15, RIGHT_45 = 0, 1, 2, 3, 4
+    STRAIGHT, LEFT_15, LEFT_45, RIGHT_15, RIGHT_45, KEEP_CURRENT = 0, 1, 2, 3, 4, 5
 
 class SkiingRGBEnv(gymnasium.Env):
     """滑雪小游戏环境-返回RGB图像
@@ -52,8 +53,11 @@ class SkiingRGBEnv(gymnasium.Env):
         self._debug = debug
         self._use_images = use_images
         
-        # 动作空间：5种动作
-        self.action_space = gymnasium.spaces.Discrete(5)
+        # 动作空间：6种动作
+        self.action_space = gymnasium.spaces.Discrete(6)
+
+        # 动作平滑性奖励
+        self._action_consistency_reward = ACTION_CONSISTENCY_REWARD
         
         # 观察空间：RGB图像 (高度, 宽度, 3通道)
         self.observation_space = gymnasium.spaces.Box(
@@ -64,6 +68,10 @@ class SkiingRGBEnv(gymnasium.Env):
             
         self._screen_width = screen_size[0]
         self._screen_height = screen_size[1]
+
+        # 背景滚动相关属性
+        self._bg_scroll_offset = 0  # 背景滚动偏移量
+        self._bg_scroll_speed = INITIAL_PLAYER_SPEED
         
         # 游戏状态变量
         self._player_x = 0
@@ -82,9 +90,10 @@ class SkiingRGBEnv(gymnasium.Env):
         if not pygame.font.get_init():
             pygame.font.init()
 
-        # 加载并播放背景音乐
-        pygame.mixer.music.load('music/troublemaker.mp3')  # 确保路径正确
-        pygame.mixer.music.play(-1)  # -1表示循环播放
+        if render_mode == "human":
+            # 加载并播放背景音乐
+            pygame.mixer.music.load('./music/troublemaker.mp3')  # 确保路径正确
+            pygame.mixer.music.play(-1)  # -1表示循环播放
 
         self._font = pygame.font.Font(None, 36)
         # 预加载游戏结束字体
@@ -114,6 +123,9 @@ class SkiingRGBEnv(gymnasium.Env):
         
         terminal = False
         reward = 0.1  # 存活奖励
+        action_bonus = 0.0  # 动作一致性奖励
+
+        self._bg_scroll_offset += self._bg_scroll_speed
         
         # 处理玩家动作
         if action == Actions.STRAIGHT:
@@ -126,6 +138,10 @@ class SkiingRGBEnv(gymnasium.Env):
             self._player_angle = 15
         elif action == Actions.RIGHT_45:
             self._player_angle = 45
+        elif action == Actions.KEEP_CURRENT:
+            # 保持当前角度不变, 给予小奖励
+            action_bonus = self._action_consistency_reward
+            reward += action_bonus
         
         # 根据角度计算水平移动
         angle_rad = np.radians(self._player_angle)
@@ -181,11 +197,11 @@ class SkiingRGBEnv(gymnasium.Env):
             # 使用圆形碰撞检测
             player_center_x = self._player_x
             player_center_y = self._player_y
-            player_radius = min(PLAYER_WIDTH, PLAYER_HEIGHT) // 2 * 0.8  # 使用80%的半径，让碰撞更合理
+            player_radius = min(PLAYER_WIDTH, PLAYER_HEIGHT) // 2 * 0.6  # 使用80%的半径，让碰撞更合理
 
             for obstacle in self._obstacles:
                 obs_center_x, obs_center_y, obs_type = obstacle
-                obs_radius = min(OBSTACLE_WIDTH, OBSTACLE_HEIGHT) // 2 * 0.6
+                obs_radius = min(OBSTACLE_WIDTH, OBSTACLE_HEIGHT) // 2 * 0.7
                 
                 if circle_collision(player_center_x, player_center_y, player_radius,
                                 obs_center_x, obs_center_y, obs_radius):
@@ -222,9 +238,11 @@ class SkiingRGBEnv(gymnasium.Env):
     def reset(self, seed=None, options=None):
         """重置游戏状态"""
         super().reset(seed=seed)
-        
+
         # 重置游戏状态
         self._game_over = False
+
+        self._bg_scroll_offset = 0
 
         # 重置玩家状态
         self._player_x = self._screen_width // 2 - PLAYER_WIDTH // 2
@@ -432,7 +450,7 @@ class SkiingRGBEnv(gymnasium.Env):
             images["obstacle"] = obstacle_images
 
             # 加载背景图像
-            bg_path = assets_dir / "background.jpg"
+            bg_path = assets_dir / "bg_snow.jpg"
             if bg_path.exists():
                 bg_surface = pygame.image.load(str(bg_path)).convert()
                 bg_surface = pygame.transform.scale(bg_surface, (self._screen_width, self._screen_height))
@@ -457,8 +475,15 @@ class SkiingRGBEnv(gymnasium.Env):
     def _draw_surface(self) -> None:
         """绘制游戏画面到surface"""
         # 绘制背景
-        if self._images.get("background"):
-            self._surface.blit(self._images["background"], (0, 0))
+        if self._use_images and self._images.get("background"):
+            bg_surface = self._images["background"]
+            bg_surface1 = pygame.transform.flip(bg_surface, False, True)
+            frameRect = bg_surface.get_rect()
+            i = self._bg_scroll_offset % frameRect.height
+            self._surface.blit(bg_surface1, (0, -i))
+            self._surface.blit(bg_surface, (0, frameRect.height-i))
+            # pygame.display.flip()
+            # self._surface.blit(self._images["background"], (0, 0))
         else:
             self._surface.fill(BACKGROUND_COLOR)
             # 绘制雪地（底部）
@@ -616,8 +641,8 @@ def process_img(image):
         # 如果传入的是(obs, info)元组，取第一个元素
         image = image[0]
     
-    # 调整大小到84x84
-    image = cv2.resize(image, (84, 84))
+    # 调整大小
+    image = cv2.resize(image, (128, 128))
     
     # 转换为灰度图
     image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
