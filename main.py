@@ -18,9 +18,10 @@ def process_img(image):
     image = cv2.resize(image, (128, 128))
     image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)  # 修改为RGB转灰度
     _, image = cv2.threshold(image, 230, 255, cv2.THRESH_BINARY)
-    image = image / 255.0  # 归一化到0-1
+    # image = image / 255.0  # 归一化到0-1
     # 显示image
-    cv2.imshow('Processed Frame', image)
+    # cv2.imshow('Processed Frame', image)
+    cv2.imwrite('./results/processed_frame.png', image)  # 保存为图像文件
     return image
 
 class params():
@@ -31,14 +32,14 @@ class params():
         self.capacity = 10000  # 增大经验池容量
         self.cuda = 'cuda:0' if torch.cuda.is_available() else 'cpu'
         self.Frames = 4
-        self.episodes = int(300)  # 减少总幕数进行测试
+        self.episodes = int(1e3)  # 减少总幕数进行测试
         self.updatebatch = 512  # 增大批次大小
         self.test_episodes = 10  # 减少测试幕数
-        self.epsilon = 0.1  # 初始探索率
+        self.epsilon = 0.01  # 初始探索率
         self.epsilon_min = 0.001  # 最小探索率
         self.epsilon_decay = 0.995  # 探索率衰减
         self.Q_NETWORK_ITERATION = 50  # 目标网络更新频率
-        self.learning_rate = 0.001  # 调整学习率
+        self.learning_rate = 0.0001  # 调整学习率
         self.agent_type = "DQN"  # 初始化
 
 def create_agent(env, args, agent_type="DQN"):
@@ -94,6 +95,7 @@ def training(arg, agent, env, save_path, final_path, reward_curve_path):
         # 重置环境
         # print(env._use_images)
         # reset_result = env.reset(options={"use_images": False})
+        # print(reset_result[0])
         # print(env._use_images)
         reset_result = env.reset()
 
@@ -162,7 +164,7 @@ def training(arg, agent, env, save_path, final_path, reward_curve_path):
         if episode % 50 == 0:
             original_render_mode = env.render_mode
             env.close()
-            test_env = make_skiing_env("Skiing-rgb-v0", render_mode=None)
+            test_env = make_skiing_env("Skiing-rgb-v0", render_mode="rgb_array")  # 测试时不渲染窗口
 
             avg_reward = test_performance(arg, agent, test_env, model_path=None)  # 已加载
             reward_curve.append(avg_reward)
@@ -459,8 +461,8 @@ if __name__ == '__main__':
     # try:
     if mode == "1":  # 训练
         print(f"🚀 开始训练 {AGENT_TYPE}...")
-        # env = make_skiing_env("Skiing-rgb-v0", render_mode=None, use_images=False)  # 无窗口渲染
-        env = make_skiing_env("Skiing-rgb-v0", render_mode="human")  # 有窗口渲染，便于调试
+        env = make_skiing_env("Skiing-rgb-v0", render_mode="rgb_array")  # 无窗口渲染，使用图像
+        # env = make_skiing_env("Skiing-rgb-v0", render_mode="human")  # 有窗口渲染，便于调试
         agent = create_agent(env, arg, AGENT_TYPE)
         load_state(MODEL_SAVE_PATH, agent)
         training(arg, agent, env, MODEL_SAVE_PATH, MODEL_FINAL_PATH, REWARD_CURVE_PATH)
@@ -484,8 +486,8 @@ if __name__ == '__main__':
 
     else:
         print("⚠️ 无效输入，启动训练模式...")
-        # env = make_skiing_env("Skiing-rgb-v0", render_mode=None, use_images=False)  # 无窗口渲染
-        env = make_skiing_env("Skiing-rgb-v0", render_mode="human")  # 有窗口渲染，便于调试
+        env = make_skiing_env("Skiing-rgb-v0", render_mode="rgb_array")  # 无窗口渲染，使用图像
+        # env = make_skiing_env("Skiing-rgb-v0", render_mode="human")  # 有窗口渲染，便于调试
         agent = create_agent(env, arg, AGENT_TYPE)
         load_state(MODEL_SAVE_PATH, agent)
         training(arg, agent, env, MODEL_SAVE_PATH, MODEL_FINAL_PATH, REWARD_CURVE_PATH)

@@ -227,7 +227,7 @@ class SkiingRGBEnv(gymnasium.Env):
         obs = self._get_observation()
         
         # 如果是human模式，额外渲染到窗口
-        if self.render_mode == "human":
+        if self.render_mode == "human" or self.render_mode == "rgb_array":
             self._update_display()
             self._fps_clock.tick(self.metadata["render_fps"])
         
@@ -267,7 +267,7 @@ class SkiingRGBEnv(gymnasium.Env):
         obs = self._get_observation()
         
         # 如果是human模式，渲染初始状态
-        if self.render_mode == "human":
+        if self.render_mode == "human" or self.render_mode == "rgb_array":
             self._update_display()
             self._fps_clock.tick(self.metadata["render_fps"])
         
@@ -475,6 +475,7 @@ class SkiingRGBEnv(gymnasium.Env):
             # 对于rgb_array模式，我们不需要实际显示窗口，但需要初始化pygame
             if not pygame.get_init():
                 pygame.init()
+            self._display = pygame.display.set_mode((self._screen_width, self._screen_height), pygame.HIDDEN)
     
     def _draw_surface(self) -> None:
         """绘制游戏画面到surface"""
@@ -603,24 +604,7 @@ class SkiingRGBEnv(gymnasium.Env):
 
     def _update_display(self) -> None:
         """更新显示（仅用于human模式）"""
-        if self.render_mode == "human" and self._display is not None:
-            # # 处理事件，包括游戏结束时的按钮点击
-            # for event in pygame.event.get():
-            #     if event.type == pygame.QUIT:
-            #         self.close()
-            #         return
-            #     elif event.type == pygame.MOUSEBUTTONDOWN and self._game_over:
-            #         # 处理游戏结束时的鼠标点击
-            #         mouse_pos = pygame.mouse.get_pos()
-            #         restart_button = pygame.Rect(self._screen_width // 2 - 100, self._screen_height // 2 + 30, 200, 50)
-            #         quit_button = pygame.Rect(self._screen_width // 2 - 100, self._screen_height // 2 + 100, 200, 50)
-                    
-            #         if restart_button.collidepoint(mouse_pos):
-            #             # 触发重新开始（通过外部控制）
-            #             pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_r))
-            #         elif quit_button.collidepoint(mouse_pos):
-            #             # 触发退出
-            #             pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_ESCAPE))
+        if (self.render_mode == "human" or self.render_mode == "rgb_array") and self._display is not None:
             pygame.event.get()
             self._display.blit(self._surface, [0, 0])
             pygame.display.update()
