@@ -468,7 +468,7 @@ class SkiingRGBEnv(gymnasium.Env):
     
     def _make_display(self) -> None:
         """初始化pygame显示"""
-        if self.render_mode == "human" or self._use_images:
+        if self.render_mode == "human":
             self._display = pygame.display.set_mode((self._screen_width, self._screen_height))
             pygame.display.set_caption("滑雪小游戏")
         else:
@@ -633,67 +633,3 @@ def make_skiing_env(env_name, **kwargs):
         return SkiingRGBEnv(**kwargs)
     else:
         raise ValueError(f"未知的环境名称: {env_name}")
-
-
-# # 处理图像的函数（与Flappy Bird相同的处理流程）
-# def process_img(image):
-#     """处理RGB图像，返回二值化后的灰度图像"""
-#     import cv2
-    
-#     # 确保图像是numpy数组
-#     if isinstance(image, tuple):
-#         # 如果传入的是(obs, info)元组，取第一个元素
-#         image = image[0]
-    
-#     # 调整大小
-#     image = cv2.resize(image, (128, 128))
-    
-#     # 转换为灰度图
-#     image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-    
-#     # 二值化处理（阈值199，大于阈值的设为1，其他设为0）
-#     _, binary_image = cv2.threshold(image, 199, 1, cv2.THRESH_BINARY_INV)
-    
-#     return binary_image
-
-
-# 测试代码
-# if __name__ == "__main__":
-#     # 测试环境
-#     env = make_skiing_env("Skiing-rgb-v0", render_mode="human", debug=True)
-    
-#     # 测试process_img函数
-#     obs, info = env.reset()
-#     print(f"原始观测形状: {obs.shape}")  # 应该是(512, 288, 3)
-    
-#     processed_obs = process_img(obs)
-#     print(f"处理后的观测形状: {processed_obs.shape}")  # 应该是(84, 84)
-    
-#     # 模拟DQN的帧堆叠
-#     obs_stack = np.expand_dims(processed_obs, axis=0)  # 添加批次维度
-#     obs_stack = np.repeat(obs_stack, 4, axis=0)  # 堆叠4帧
-#     print(f"堆叠后的观测形状: {obs_stack.shape}")  # 应该是(4, 84, 84)
-    
-#     # 运行几帧测试
-#     running = True
-#     for i in range(100):
-#         action = env.action_space.sample()
-#         obs, reward, terminated, truncated, info = env.step(action)
-        
-#         # 处理图像
-#         processed_obs = process_img(obs)
-        
-#         if terminated or truncated:
-#             obs, info = env.reset()
-#             processed_obs = process_img(obs)
-        
-#         # 处理退出事件
-#         for event in pygame.event.get():
-#             if event.type == pygame.QUIT:
-#                 running = False
-#                 break
-        
-#         if not running:
-#             break
-    
-#     env.close()

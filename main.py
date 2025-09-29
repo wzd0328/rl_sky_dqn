@@ -92,6 +92,9 @@ def training(arg, agent, env, save_path, final_path, reward_curve_path):
         print(f"Starting episode {episode}")
 
         # 重置环境
+        # print(env._use_images)
+        # reset_result = env.reset(options={"use_images": False})
+        # print(env._use_images)
         reset_result = env.reset()
 
         if isinstance(reset_result, tuple):
@@ -456,9 +459,10 @@ if __name__ == '__main__':
     # try:
     if mode == "1":  # 训练
         print(f"🚀 开始训练 {AGENT_TYPE}...")
-        env = make_skiing_env("Skiing-rgb-v0", render_mode=None)
+        # env = make_skiing_env("Skiing-rgb-v0", render_mode=None, use_images=False)  # 无窗口渲染
+        env = make_skiing_env("Skiing-rgb-v0", render_mode="human")  # 有窗口渲染，便于调试
         agent = create_agent(env, arg, AGENT_TYPE)
-        # load_state(MODEL_SAVE_PATH, agent)
+        load_state(MODEL_SAVE_PATH, agent)
         training(arg, agent, env, MODEL_SAVE_PATH, MODEL_FINAL_PATH, REWARD_CURVE_PATH)
 
     elif mode == "2":  # 测试（带显示）
@@ -480,11 +484,13 @@ if __name__ == '__main__':
 
     else:
         print("⚠️ 无效输入，启动训练模式...")
-        env = make_skiing_env("Skiing-rgb-v0", render_mode=None)
+        # env = make_skiing_env("Skiing-rgb-v0", render_mode=None, use_images=False)  # 无窗口渲染
+        env = make_skiing_env("Skiing-rgb-v0", render_mode="human")  # 有窗口渲染，便于调试
         agent = create_agent(env, arg, AGENT_TYPE)
         load_state(MODEL_SAVE_PATH, agent)
         training(arg, agent, env, MODEL_SAVE_PATH, MODEL_FINAL_PATH, REWARD_CURVE_PATH)
 
+    env.close()
     # except Exception as e:
     #     print(f"❌ 程序异常: {e}")
     # finally:
