@@ -45,5 +45,3 @@ class DQN():
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
-
-

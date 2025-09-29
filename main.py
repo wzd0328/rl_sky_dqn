@@ -445,7 +445,7 @@ def test_with_display(arg, agent, model_path=None):
 
 if __name__ == '__main__':
     # ==================== 配置区域====================
-    AGENT_TYPE = "DQN"  # 可选: "DQN", "NoisyDQN"
+    AGENT_TYPE = "NoisyDQN"  # 可选: "DQN", "NoisyDQN"
     MODEL_SAVE_PATH = f"models/ski_{AGENT_TYPE.lower()}_best.pkl"
     MODEL_FINAL_PATH = f"models/ski_{AGENT_TYPE.lower()}_final.pkl"
     REWARD_CURVE_PATH = f"results/reward_curve_{AGENT_TYPE.lower()}.jpg"
