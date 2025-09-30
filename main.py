@@ -51,6 +51,9 @@ def create_agent(env, args, agent_type="DQN"):
     elif agent_type == "NoisyDQN":
         from agents.noisydqn_agent import NoisyDQN
         agent = NoisyDQN(env, args) 
+    elif agent_type == "DuelingDQN":
+        from agents.Duelingdqn_agent import DuelingDQN
+        agent = DuelingDQN(env, args)
 
     else:
         raise ValueError(f"未知的 Agent 类型: {agent_type}")
@@ -445,7 +448,9 @@ def test_with_display(arg, agent, model_path=None):
 
 if __name__ == '__main__':
     # ==================== 配置区域====================
-    AGENT_TYPE = "DQN"  # 可选: "DQN", "NoisyDQN"
+    # 可选: "DQN", "NoisyDQN"
+    # AGENT_TYPE = "DQN"  
+    AGENT_TYPE = "DuelingDQN"
     MODEL_SAVE_PATH = f"models/ski_{AGENT_TYPE.lower()}_best.pkl"
     MODEL_FINAL_PATH = f"models/ski_{AGENT_TYPE.lower()}_final.pkl"
     REWARD_CURVE_PATH = f"results/reward_curve_{AGENT_TYPE.lower()}.jpg"

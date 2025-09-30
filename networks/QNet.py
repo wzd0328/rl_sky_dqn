@@ -25,3 +25,41 @@ class Q_net(nn.Module):
         x = self.Relu(self.fc1(x))
         x = self.fc2(x)
         return x
+
+class DuelingQNet(nn.Module):
+    def __init__(self, obs_dim, action_dim):
+        super(DuelingQNet, self).__init__()
+        C, H, W = obs_dim  # 通道数、高、宽
+
+        # 卷积特征提取
+        self.feature = nn.Sequential(
+            nn.Conv2d(C, 32, kernel_size=8, stride=4), nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU(),
+            nn.Flatten()
+        )
+
+        # 计算卷积输出维度
+        with torch.no_grad():
+            test_input = torch.zeros(1, C, H, W)
+            feat_dim = self.feature(test_input).shape[1]
+
+        # 状态价值流 V(s)
+        self.value = nn.Sequential(
+            nn.Linear(feat_dim, 512), nn.ReLU(),
+            nn.Linear(512, 1)
+        )
+
+        # 优势流 A(s, a)
+        self.advantage = nn.Sequential(
+            nn.Linear(feat_dim, 512), nn.ReLU(),
+            nn.Linear(512, action_dim)
+        )
+
+    def forward(self, x):
+        """前向传播: Q(s,a) = V(s) + (A(s,a) - mean(A(s,a)))"""
+        x = self.feature(x)
+        V = self.value(x)
+        A = self.advantage(x)
+        Q = V + (A - A.mean(dim=1, keepdim=True))
+        return Q
