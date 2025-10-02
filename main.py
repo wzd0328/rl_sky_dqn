@@ -27,18 +27,18 @@ def process_img(image):
 class params():
     def __init__(self):
         self.gamma = 0.99
-        self.action_dim = 6  # 5种动作
+        self.action_dim = 3  # 3种动作
         self.obs_dim = (4, 128, 128)  # 4帧堆叠
         self.capacity = 10000  # 增大经验池容量
         self.cuda = 'cuda:0' if torch.cuda.is_available() else 'cpu'
         self.Frames = 4
-        self.episodes = int(1e3)  # 减少总幕数进行测试
+        self.episodes = int(1e2)  # 减少总幕数进行测试
         self.updatebatch = 512  # 增大批次大小
         self.test_episodes = 10  # 减少测试幕数
-        self.epsilon = 0.01  # 初始探索率
-        self.epsilon_min = 0.001  # 最小探索率
+        self.epsilon = 0.001  # 初始探索率
+        self.epsilon_min = 0.0001  # 最小探索率
         self.epsilon_decay = 0.995  # 探索率衰减
-        self.Q_NETWORK_ITERATION = 50  # 目标网络更新频率
+        self.Q_NETWORK_ITERATION = 100  # 目标网络更新频率
         self.learning_rate = 0.0001  # 调整学习率
         self.agent_type = "DQN"  # 初始化
 
@@ -116,8 +116,10 @@ def training(arg, agent, env, save_path, final_path, reward_curve_path):
         while not done:
             if random.random() < arg.epsilon:
                 action = random.randint(0, arg.action_dim - 1)
+                # print("随机选择:", action)
             else:
                 action = agent.get_action(obs)
+                # print("贪心选择:", action)
 
             step_result = env.step(action)
 
@@ -143,7 +145,7 @@ def training(arg, agent, env, save_path, final_path, reward_curve_path):
 
             obs = next_obs
 
-            if step_count > 1000:
+            if step_count > 10000:
                 break
 
         if len(traj['obs']) > 0:
@@ -223,7 +225,7 @@ def test_performance(arg, agent, test_env=None, model_path=None):
             obs = _roll_obs(obs, step_result[0])
             ep_reward += reward
             step_count += 1
-            if step_count > 500:
+            if step_count > 1000:
                 break
         rewards.append(ep_reward)
 
@@ -446,7 +448,7 @@ def test_with_display(arg, agent, model_path=None):
 if __name__ == '__main__':
     # ==================== 配置区域====================
     AGENT_TYPE = "DQN"  # 可选: "DQN", "NoisyDQN"
-    MODEL_SAVE_PATH = f"models/ski_{AGENT_TYPE.lower()}_best.pkl"
+    MODEL_SAVE_PATH = f"models/ski_{AGENT_TYPE.lower()}_best_actionreward-slip.pkl"
     MODEL_FINAL_PATH = f"models/ski_{AGENT_TYPE.lower()}_final.pkl"
     REWARD_CURVE_PATH = f"results/reward_curve_{AGENT_TYPE.lower()}.jpg"
 
@@ -477,7 +479,7 @@ if __name__ == '__main__':
         print(f"🎬 开始演示 {AGENT_TYPE}...")
         env = make_skiing_env("Skiing-rgb-v0", render_mode="human", debug=True)
         agent = create_agent(env, arg, AGENT_TYPE)
-        demo_play(arg, agent, env, MODEL_SAVE_PATH)
+        demo_play(arg, agent, env, MODEL_FINAL_PATH)
 
     elif mode == "4":  # 人工游玩
         print("🎮 人工玩家模式...")

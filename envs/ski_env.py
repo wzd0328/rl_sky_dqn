@@ -18,9 +18,7 @@ MAX_PLAYER_SPEED = 15
 ACCELERATION_RATE = 0.001
 OBSTACLE_GENERATION_RATE_INITIAL = 0.02
 OBSTACLE_GENERATION_RATE_MAX = 0.1
-# OBSTACLE_VEL_Y = 3
-PLAYER_ANGLE_CHANGE = 15  # 角度变化量
-ACTION_CONSISTENCY_REWARD = 0.02  # 动作平滑性奖励
+# ACTION_CONSISTENCY_REWARD = 0.1 # 动作平滑性奖励
 
 # 颜色定义
 WHITE = (255, 255, 255)
@@ -32,8 +30,13 @@ BACKGROUND_COLOR = (255, 206, 235)  # 背景颜色
 SNOW_COLOR = (255, 250, 250)  # 雪地颜色
 
 class Actions(IntEnum):
-    """滑雪者的可能动作-5种"""
-    STRAIGHT, LEFT_15, LEFT_45, RIGHT_15, RIGHT_45, KEEP_CURRENT = 0, 1, 2, 3, 4, 5
+    """滑雪者的可能动作-3种"""
+    # STRAIGHT, LEFT_15, LEFT_45, RIGHT_15, RIGHT_45, KEEP_CURRENT = 0, 1, 2, 3, 4, 5
+    LEFT, RIGHT, KEEP_CURRENT = 0, 1, 2
+
+class Angles(IntEnum):
+    """滑雪者的滑行角度-5种"""
+    STRAIGHT, LEFT_15, LEFT_45, RIGHT_15, RIGHT_45 = 0, 1, 2, 3, 4
 
 class SkiingRGBEnv(gymnasium.Env):
     """滑雪小游戏环境-返回RGB图像
@@ -53,11 +56,58 @@ class SkiingRGBEnv(gymnasium.Env):
         self._debug = debug
         self._use_images = use_images
         
-        # 动作空间：6种动作
-        self.action_space = gymnasium.spaces.Discrete(6)
+        # 动作空间：3种动作
+        self.action_space = gymnasium.spaces.Discrete(3)
+
+        self._action_transition_rules = {
+            Angles.STRAIGHT: [Actions.LEFT, Actions.RIGHT, Actions.KEEP_CURRENT],
+            Angles.LEFT_15: [Actions.LEFT, Actions.RIGHT, Actions.KEEP_CURRENT],
+            Angles.LEFT_45: [Actions.RIGHT, Actions.KEEP_CURRENT],
+            Angles.RIGHT_15: [Actions.LEFT, Actions.RIGHT, Actions.KEEP_CURRENT],
+            Angles.RIGHT_45: [Actions.LEFT, Actions.KEEP_CURRENT]
+        }
+
+        self._angle_enum_to_value = {
+            Angles.STRAIGHT: 0,
+            Angles.LEFT_15: -15,
+            Angles.LEFT_45: -45,
+            Angles.RIGHT_15: 15,
+            Angles.RIGHT_45: 45
+        }
+
+        # 定义角度变换规则
+        self._angle_transition_map = {
+            # 从当前角度 -> 执行动作 -> 新角度
+            Angles.STRAIGHT: {
+                Actions.LEFT: Angles.LEFT_15,
+                Actions.RIGHT: Angles.RIGHT_15,
+                Actions.KEEP_CURRENT: Angles.STRAIGHT
+            },
+            Angles.LEFT_15: {
+                Actions.LEFT: Angles.LEFT_45,
+                Actions.RIGHT: Angles.STRAIGHT,
+                Actions.KEEP_CURRENT: Angles.LEFT_15
+            },
+            Angles.LEFT_45: {
+                Actions.RIGHT: Angles.LEFT_15,
+                Actions.KEEP_CURRENT: Angles.LEFT_45
+            },
+            Angles.RIGHT_15: {
+                Actions.LEFT: Angles.STRAIGHT,
+                Actions.RIGHT: Angles.RIGHT_45,
+                Actions.KEEP_CURRENT: Angles.RIGHT_15
+            },
+            Angles.RIGHT_45: {
+                Actions.LEFT: Angles.RIGHT_15,
+                Actions.KEEP_CURRENT: Angles.RIGHT_45
+            }
+        }
+
+        # 当前允许的动作列表
+        self._allowed_actions = list(self._action_transition_rules[Angles.STRAIGHT])
 
         # 动作平滑性奖励
-        self._action_consistency_reward = ACTION_CONSISTENCY_REWARD
+        # self._action_consistency_reward = ACTION_CONSISTENCY_REWARD
         
         # 观察空间：RGB图像 (高度, 宽度, 3通道)
         self.observation_space = gymnasium.spaces.Box(
@@ -76,7 +126,7 @@ class SkiingRGBEnv(gymnasium.Env):
         # 游戏状态变量
         self._player_x = 0
         self._player_y = 0
-        self._player_angle = 0  # 角度，0表示垂直向下
+        self._player_angle = Angles.STRAIGHT  # 角度垂直向下
         self._player_speed = INITIAL_PLAYER_SPEED
         self._obstacles = []  # 障碍物列表，每个障碍物是(x, y)元组
         self._score = 0  # 分数为垂直下滑距离
@@ -120,31 +170,39 @@ class SkiingRGBEnv(gymnasium.Env):
         if self._game_over:
             obs = self._get_observation()
             return obs, 0, True, False, {"score": self._score, "game_over": True}
-        
+        if type(action) == int:
+            action = Actions(action)
+        else:
+            action = Actions(action[0])
         terminal = False
         reward = 0.1  # 存活奖励
-        action_bonus = 0.0  # 动作一致性奖励
+        # action_bonus = 0.0  # 动作一致性奖励
+
+        # 检查动作是否被允许
+        # print("当前可执行动作单:", self._allowed_actions)
+        is_valid_action = action in self._allowed_actions
+        validity_penalty = 0.0
+        
+        if not is_valid_action:
+            # 无效动作惩罚，并选择最接近的允许动作
+            validity_penalty = -0.2
+            reward += validity_penalty
+            action = Actions.KEEP_CURRENT
+            # print(f"无效动作! 不执行，当前动作保持不变")
+
+        if action != Actions.KEEP_CURRENT:
+            self._player_angle = self._angle_transition_map[self._player_angle][action]
+            # print("动作后角度为：", self._player_angle)
+
+        if action != Actions.KEEP_CURRENT:
+            # print(action)
+            self._allowed_actions = list(self._action_transition_rules[self._player_angle])
+            # print("动作后可执行动作单：", self._allowed_actions)
 
         self._bg_scroll_offset += self._bg_scroll_speed
         
-        # 处理玩家动作
-        if action == Actions.STRAIGHT:
-            self._player_angle = 0
-        elif action == Actions.LEFT_15:
-            self._player_angle = -15
-        elif action == Actions.LEFT_45:
-            self._player_angle = -45
-        elif action == Actions.RIGHT_15:
-            self._player_angle = 15
-        elif action == Actions.RIGHT_45:
-            self._player_angle = 45
-        elif action == Actions.KEEP_CURRENT:
-            # 保持当前角度不变, 给予小奖励
-            action_bonus = self._action_consistency_reward
-            reward += action_bonus
-        
         # 根据角度计算水平移动
-        angle_rad = np.radians(self._player_angle)
+        angle_rad = np.radians(self._angle_enum_to_value[self._player_angle])
         horizontal_move = self._player_speed * np.sin(angle_rad)
 
         # 更新玩家位置
@@ -248,8 +306,10 @@ class SkiingRGBEnv(gymnasium.Env):
         # 重置玩家状态
         self._player_x = self._screen_width // 2
         self._player_y = 120
-        self._player_angle = 0
+        self._player_angle = Angles.STRAIGHT
         self._player_speed = INITIAL_PLAYER_SPEED
+
+        self._allowed_actions = list(self._action_transition_rules[Angles.STRAIGHT])
         
         # 清空障碍物
         self._obstacles = []
@@ -274,7 +334,7 @@ class SkiingRGBEnv(gymnasium.Env):
         info = {"score": self._score, "distance": self._distance, "speed": self._player_speed}
         
         return obs, info
-    
+
     def render(self) -> None:
         """渲染游戏画面 - 返回RGB数组"""
         if self.render_mode == "rgb_array":
@@ -513,15 +573,15 @@ class SkiingRGBEnv(gymnasium.Env):
             
             # 绘制玩家
             if self._use_images and self._images:
-                if self._player_angle == 0:
+                if self._player_angle == Angles.STRAIGHT:
                     player_img = self._images["player_straight"]
-                elif self._player_angle == -15:
+                elif self._player_angle == Angles.LEFT_15:
                     player_img = self._images["player_left_15"]
-                elif self._player_angle == -45:
+                elif self._player_angle == Angles.LEFT_45:
                     player_img = self._images["player_left_45"]
-                elif self._player_angle == 15:
+                elif self._player_angle == Angles.RIGHT_15:
                     player_img = self._images["player_right_15"]
-                elif self._player_angle == 45:
+                elif self._player_angle == Angles.RIGHT_45:
                     player_img = self._images["player_right_45"]
                 else:
                     player_img = self._images["player_straight"]
@@ -532,7 +592,7 @@ class SkiingRGBEnv(gymnasium.Env):
                 pygame.draw.rect(player_surface, RED, (0, 0, PLAYER_WIDTH, PLAYER_HEIGHT))
                 pygame.draw.circle(player_surface, BLUE, (PLAYER_WIDTH//2, PLAYER_HEIGHT//2), PLAYER_WIDTH//3)
                 # 旋转玩家图像以匹配角度
-                rotated_player = pygame.transform.rotate(player_surface, -self._player_angle)
+                rotated_player = pygame.transform.rotate(player_surface, -self._angle_enum_to_value[self._player_angle])
                 rect = rotated_player.get_rect(center=(self._player_x, self._player_y))
                 self._surface.blit(rotated_player, rect)
                 # # 使用矩形和三角形绘制玩家

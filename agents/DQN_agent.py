@@ -19,7 +19,7 @@ class DQN():
         if random.random()>self.arg.epsilon:
             return self.greedy_action(obs)
         else:
-            return random.randint(0,1)
+            return random.randint(0,2)
 
     def greedy_action(self,obs):
         obs = torch.tensor(obs, device=self.arg.cuda, dtype=torch.float32)
