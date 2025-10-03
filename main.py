@@ -20,8 +20,8 @@ def process_img(image):
     _, image = cv2.threshold(image, 230, 255, cv2.THRESH_BINARY)
     # image = image / 255.0  # 归一化到0-1
     # 显示image
-    # cv2.imshow('Processed Frame', image)
-    cv2.imwrite('./results/processed_frame.png', image)  # 保存为图像文件
+    cv2.imshow('Processed Frame', image)
+    # cv2.imwrite('./results/processed_frame.png', image)  # 保存为图像文件
     return image
 
 class params():
@@ -383,7 +383,7 @@ def human_play_mode(env):
                 
                 # 显示实时信息
                 if step_count % 50 == 0:
-                    print(f"得分: {total_reward:.1f}, 速度: {info.get('speed', 0):.1f}")
+                    print(f"得分: {info.get('score', 0):.1f}, 速度: {info.get('speed', 0):.1f}, 旗帜数量: {info.get('flag_count', 0)}")
                 
                 # 限制最大步数
                 if step_count > 5000:
@@ -448,7 +448,7 @@ def test_with_display(arg, agent, model_path=None):
 if __name__ == '__main__':
     # ==================== 配置区域====================
     AGENT_TYPE = "DQN"  # 可选: "DQN", "NoisyDQN"
-    MODEL_SAVE_PATH = f"models/ski_{AGENT_TYPE.lower()}_best_actionreward-slip.pkl"
+    MODEL_SAVE_PATH = f"models/ski_{AGENT_TYPE.lower()}_best_flag.pkl"
     MODEL_FINAL_PATH = f"models/ski_{AGENT_TYPE.lower()}_final.pkl"
     REWARD_CURVE_PATH = f"results/reward_curve_{AGENT_TYPE.lower()}.jpg"
 
@@ -463,8 +463,8 @@ if __name__ == '__main__':
     # try:
     if mode == "1":  # 训练
         print(f"🚀 开始训练 {AGENT_TYPE}...")
-        env = make_skiing_env("Skiing-rgb-v0", render_mode="rgb_array")  # 无窗口渲染，使用图像
-        # env = make_skiing_env("Skiing-rgb-v0", render_mode="human")  # 有窗口渲染，便于调试
+        # env = make_skiing_env("Skiing-rgb-v0", render_mode="rgb_array")  # 无窗口渲染，使用图像
+        env = make_skiing_env("Skiing-rgb-v0", render_mode="human")  # 有窗口渲染，便于调试
         agent = create_agent(env, arg, AGENT_TYPE)
         load_state(MODEL_SAVE_PATH, agent)
         training(arg, agent, env, MODEL_SAVE_PATH, MODEL_FINAL_PATH, REWARD_CURVE_PATH)
@@ -479,7 +479,7 @@ if __name__ == '__main__':
         print(f"🎬 开始演示 {AGENT_TYPE}...")
         env = make_skiing_env("Skiing-rgb-v0", render_mode="human", debug=True)
         agent = create_agent(env, arg, AGENT_TYPE)
-        demo_play(arg, agent, env, MODEL_FINAL_PATH)
+        demo_play(arg, agent, env, MODEL_SAVE_PATH)
 
     elif mode == "4":  # 人工游玩
         print("🎮 人工玩家模式...")

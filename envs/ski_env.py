@@ -13,11 +13,16 @@ PLAYER_WIDTH = 80
 PLAYER_HEIGHT = 100
 OBSTACLE_WIDTH = 60
 OBSTACLE_HEIGHT = 80
+FLAG_WIDTH = 70
+FLAG_HEIGHT = 80
 INITIAL_PLAYER_SPEED = 4
 MAX_PLAYER_SPEED = 15
 ACCELERATION_RATE = 0.001
-OBSTACLE_GENERATION_RATE_INITIAL = 0.02
-OBSTACLE_GENERATION_RATE_MAX = 0.1
+OBSTACLE_GENERATION_RATE_INITIAL = 0.1
+OBSTACLE_GENERATION_RATE_MAX = 0.3
+FLAG_GENERATION_RATE = 0.02
+FLAG_SPEED_REDUCTION = 0.5  # 收集旗帜时速度减少量
+FLAG_REWARD = 5.0  # 收集旗帜的奖励
 # ACTION_CONSISTENCY_REWARD = 0.1 # 动作平滑性奖励
 
 # 颜色定义
@@ -133,6 +138,10 @@ class SkiingRGBEnv(gymnasium.Env):
         self._distance = 0  # 下滑总距离
         self._obstacle_generation_rate = OBSTACLE_GENERATION_RATE_INITIAL
         self._game_over = False
+
+        self._flags = []  # 旗帜列表，每个旗帜是(x, y)元组
+        self._flag_generation_rate = FLAG_GENERATION_RATE  # 旗帜生成概率
+        self.flag_count = 0  # 收集的旗帜数量
         
         if not pygame.get_init():
             pygame.init()
@@ -188,8 +197,7 @@ class SkiingRGBEnv(gymnasium.Env):
             validity_penalty = -0.2
             reward += validity_penalty
             action = Actions.KEEP_CURRENT
-            # print(f"无效动作! 不执行，当前动作保持不变")
-
+            # print(f"无效动作! 不执行，当前角度保持不变")
         if action != Actions.KEEP_CURRENT:
             self._player_angle = self._angle_transition_map[self._player_angle][action]
             # print("动作后角度为：", self._player_angle)
@@ -210,10 +218,11 @@ class SkiingRGBEnv(gymnasium.Env):
         
         # 增加下滑距离和分数
         self._distance += self._player_speed * 0.1
-        self._score = self._distance
+        self._score += self._player_speed * 0.1
         
         # 根据距离增加速度
-        self._player_speed = min(MAX_PLAYER_SPEED, INITIAL_PLAYER_SPEED + self._distance * ACCELERATION_RATE)
+        
+        self._player_speed = min(MAX_PLAYER_SPEED, max(INITIAL_PLAYER_SPEED, INITIAL_PLAYER_SPEED + self._distance * ACCELERATION_RATE))
         
         # 根据距离增加障碍物生成率
         self._obstacle_generation_rate = min(
@@ -235,6 +244,47 @@ class SkiingRGBEnv(gymnasium.Env):
             if y > self._player_y:
                 new_obstacles.append((x, y, obs_type))
         self._obstacles = new_obstacles
+
+        # 生成新旗帜
+        if np.random.random() < self._flag_generation_rate:
+            self._generate_flag()
+
+        # 移动旗帜（与障碍物相同速度）
+        new_flags = []
+        for flag in self._flags:
+            x, y = flag
+            y -= self._player_speed  # 旗帜向上移动
+            
+            # 检查旗帜是否还在屏幕内
+            if y > self._player_y - FLAG_HEIGHT:
+                # 检查玩家是否碰到旗帜
+                player_rect = pygame.Rect(
+                    self._player_x - PLAYER_WIDTH//4, 
+                    self._player_y - PLAYER_HEIGHT//4, 
+                    PLAYER_WIDTH//4, 
+                    PLAYER_HEIGHT//4
+                )
+                flag_rect = pygame.Rect(
+                    x - FLAG_WIDTH//2 - 5,
+                    y - FLAG_HEIGHT//2 - 5,
+                    FLAG_WIDTH - 5,
+                    FLAG_HEIGHT - 5
+                )
+                
+                if player_rect.colliderect(flag_rect):
+                    # 收集旗帜
+                    reward += FLAG_REWARD
+                    self.flag_count += 1
+                    self._score += 5.0  # 额外奖励分数
+                    
+                    # 减少速度
+                    # self._player_speed = max(INITIAL_PLAYER_SPEED, self._player_speed - FLAG_SPEED_REDUCTION)
+                    self._distance = max(0, self._distance - FLAG_SPEED_REDUCTION * 100)  # 通过减少距离间接减少速度
+                    
+                else:
+                    new_flags.append((x, y))
+        
+        self._flags = new_flags
         
         # 检查游戏结束条件
         # 1. 超出屏幕左右边界
@@ -289,7 +339,7 @@ class SkiingRGBEnv(gymnasium.Env):
             self._update_display()
             self._fps_clock.tick(self.metadata["render_fps"])
         
-        info = {"score": self._score, "distance": self._distance, "speed": self._player_speed, "game_over": self._game_over}
+        info = {"score": self._score, "distance": self._score, "speed": self._player_speed, "game_over": self._game_over, "flag_count": self.flag_count}
         
         return obs, reward, terminal, False, info
     
@@ -313,6 +363,10 @@ class SkiingRGBEnv(gymnasium.Env):
         
         # 清空障碍物
         self._obstacles = []
+
+        # 重置旗子
+        self._flags = []
+        self.flag_count = 0
         
         # 重置分数和距离
         self._score = 0
@@ -322,6 +376,9 @@ class SkiingRGBEnv(gymnasium.Env):
         # 生成初始障碍物
         for _ in range(5):
             self._generate_obstacle()
+
+        for _ in range(2):  # 初始生成2个旗帜
+            self._generate_flag()
         
         # 获取观察值（RGB图像）
         obs = self._get_observation()
@@ -388,7 +445,7 @@ class SkiingRGBEnv(gymnasium.Env):
                 OBSTACLE_HEIGHT + 2 * safety_margin  # 高度（带间距）
             )
             
-            # 检查是否与现存障碍物重叠（考虑安全间距）
+            # 检查是否与现存障碍物重叠
             overlap = False
             for existing_obstacle in self._obstacles:
                 existing_x, existing_y, _ = existing_obstacle
@@ -403,6 +460,19 @@ class SkiingRGBEnv(gymnasium.Env):
                     overlap = True
                     break
             
+            # 检查是否与现存旗帜重叠（考虑安全间距）
+            for existing_flag in self._flags:
+                existing_x, existing_y = existing_flag
+                existing_detection_rect = pygame.Rect(
+                    existing_x - half_width - 5,
+                    existing_y - half_height - 5,
+                    OBSTACLE_WIDTH + 2 * 5,
+                    OBSTACLE_HEIGHT + 2 * 5
+                )
+                if detection_rect.colliderect(existing_detection_rect):
+                    overlap = True
+                    break
+            
             # 如果没有重叠，添加障碍物
             if not overlap:
                 self._obstacles.append((x, y, obs_type))
@@ -410,48 +480,86 @@ class SkiingRGBEnv(gymnasium.Env):
             
             attempts += 1
         
-        # 备用策略：如果无法找到理想位置，尝试在现有障碍物之间寻找空隙
-        if attempts >= max_attempts and self._obstacles:
-            # 对现有障碍物按x坐标排序
-            sorted_obstacles = sorted(self._obstacles, key=lambda obs: obs[0])
-            
-            # 查找障碍物之间的空隙
-            for i in range(len(sorted_obstacles)):
-                if i == 0:
-                    # 检查最左边的空隙
-                    left_boundary = half_width
-                    right_boundary = sorted_obstacles[0][0] - half_width
-                    gap = right_boundary - left_boundary
-                    
-                    if gap >= OBSTACLE_WIDTH + 2 * safety_margin:
-                        x = left_boundary + gap // 2
-                        self._obstacles.append((x, y, obs_type))
-                        return
-                
-                if i == len(sorted_obstacles) - 1:
-                    # 检查最右边的空隙
-                    left_boundary = sorted_obstacles[i][0] + half_width
-                    right_boundary = self._screen_width - half_width
-                    gap = right_boundary - left_boundary
-                    
-                    if gap >= OBSTACLE_WIDTH + 2 * safety_margin:
-                        x = left_boundary + gap // 2
-                        self._obstacles.append((x, y, obs_type))
-                        return
-                else:
-                    # 检查中间的空隙
-                    left_obstacle = sorted_obstacles[i]
-                    right_obstacle = sorted_obstacles[i + 1]
-                    
-                    left_boundary = left_obstacle[0] + half_width
-                    right_boundary = right_obstacle[0] - half_width
-                    gap = right_boundary - left_boundary
-                    
-                    if gap >= OBSTACLE_WIDTH + 2 * safety_margin:
-                        x = left_boundary + gap // 2
-                        self._obstacles.append((x, y, obs_type))
-                        return
+        if attempts >= max_attempts:
+            if self._debug:
+                print("无法找到合适的障碍物位置")
     
+    def _generate_flag(self):
+        """生成一个新的旗帜"""
+        half_width = FLAG_WIDTH // 2  # 需要定义FLAG_WIDTH和FLAG_HEIGHT
+        half_height = FLAG_HEIGHT // 2
+        
+        # 旗帜中心坐标的有效范围
+        min_x = half_width
+        max_x = self._screen_width - half_width
+        min_y = half_height
+        max_y = self._screen_height - half_height
+        
+        # 新旗帜从屏幕底部生成（与障碍物相同高度）
+        y = self._screen_height - half_height
+        
+        # 安全间距（比障碍物小一些，因为旗帜可以离障碍物近一点）
+        safety_margin = PLAYER_WIDTH + 3
+        
+        # 最大尝试次数
+        max_attempts = 30
+        attempts = 0
+        
+        while attempts < max_attempts:
+            # 随机生成旗帜中心x坐标
+            x = np.random.randint(min_x, max_x + 1)
+            
+            # 创建检测区域
+            detection_rect = pygame.Rect(
+                x - half_width - safety_margin,
+                y - half_height - safety_margin,
+                FLAG_WIDTH + 2 * safety_margin,
+                FLAG_HEIGHT + 2 * safety_margin
+            )
+            
+            # 检查是否与现存障碍物重叠
+            overlap_with_obstacle = False
+            for existing_obstacle in self._obstacles:
+                existing_x, existing_y, _ = existing_obstacle
+                existing_rect = pygame.Rect(
+                    existing_x - OBSTACLE_WIDTH//2 - safety_margin,
+                    existing_y - OBSTACLE_HEIGHT//2 - safety_margin,
+                    OBSTACLE_WIDTH + 2 * safety_margin,
+                    OBSTACLE_HEIGHT + 2 * safety_margin
+                )
+                
+                if detection_rect.colliderect(existing_rect):
+                    overlap_with_obstacle = True
+                    break
+            
+            # 检查是否与其他旗帜重叠
+            overlap_with_flag = False
+            for existing_flag in self._flags:
+                existing_x, existing_y = existing_flag
+                existing_flag_rect = pygame.Rect(
+                    existing_x - half_width - safety_margin,
+                    existing_y - half_height - safety_margin,
+                    FLAG_WIDTH + 2 * safety_margin,
+                    FLAG_HEIGHT + 2 * safety_margin
+                )
+                
+                if detection_rect.colliderect(existing_flag_rect):
+                    overlap_with_flag = True
+                    break
+            
+            # 如果没有重叠，添加旗帜
+            if not overlap_with_obstacle and not overlap_with_flag:
+                self._flags.append((x, y))
+                if self._debug:
+                    print(f"生成旗帜在位置 ({x}, {y})")
+                return
+            
+            attempts += 1
+        
+        # 如果无法找到合适位置，不生成旗帜
+        if self._debug and attempts >= max_attempts:
+            print("无法找到合适的旗帜位置")
+
     def _get_observation(self) -> np.ndarray:
         """获取观察值 - 返回RGB图像数组"""
         # 绘制当前游戏状态到surface
@@ -513,6 +621,13 @@ class SkiingRGBEnv(gymnasium.Env):
                     obstacle_images.append(obstacle_surface)
             images["obstacle"] = obstacle_images
 
+            # 加载旗帜图像
+            flag_path = assets_dir / "flag.png"
+            if flag_path.exists():
+                flag_surface = pygame.image.load(str(flag_path)).convert_alpha()
+                flag_surface = pygame.transform.scale(flag_surface, (FLAG_WIDTH, FLAG_HEIGHT))
+                images["flag"] = flag_surface
+
             # 加载背景图像
             bg_path = assets_dir / "snow.jpg"
             if bg_path.exists():
@@ -571,6 +686,37 @@ class SkiingRGBEnv(gymnasium.Env):
                     pygame.draw.rect(self._surface, GREEN, obstacle_rect)
                     pygame.draw.rect(self._surface, BLACK, obstacle_rect.inflate(-10, -10), 2)
             
+            # 绘制旗帜
+            for flag in self._flags:
+                x, y = flag
+                if self._use_images and "flag" in self._images:
+                    # 使用旗帜图像
+                    flag_img = self._images["flag"]
+                    img_rect = flag_img.get_rect(center=(x, y))
+                    self._surface.blit(flag_img, img_rect)
+                else:
+                    # 使用简单图形绘制旗帜
+                    flag_color = (255, 0, 0)  # 红色旗帜
+                    pole_color = (139, 69, 19)  # 棕色旗杆
+                    
+                    # 绘制旗杆
+                    pole_rect = pygame.Rect(
+                        x - 2,  # 旗杆宽度4像素
+                        y - FLAG_HEIGHT//2,
+                        4,
+                        FLAG_HEIGHT
+                    )
+                    pygame.draw.rect(self._surface, pole_color, pole_rect)
+                    
+                    # 绘制旗面
+                    flag_rect = pygame.Rect(
+                        x + 2,  # 从旗杆右侧开始
+                        y - FLAG_HEIGHT//2,
+                        FLAG_WIDTH - 4,
+                        FLAG_HEIGHT//2
+                    )
+                    pygame.draw.rect(self._surface, flag_color, flag_rect)
+            
             # 绘制玩家
             if self._use_images and self._images:
                 if self._player_angle == Angles.STRAIGHT:
@@ -612,12 +758,16 @@ class SkiingRGBEnv(gymnasium.Env):
                 # pygame.draw.circle(self._surface, BLUE, (int(end_x), int(end_y)), 5)
             
             # 绘制分数
-            score_text = self._font.render(f"Score: {int(self._distance)}", True, BLACK)
+            score_text = self._font.render(f"Score: {int(self._score)}", True, BLACK)
             self._surface.blit(score_text, (10, 10))
             
             # 绘制速度
             speed_text = self._font.render(f"Speed: {self._player_speed:.1f}", True, BLACK)
             self._surface.blit(speed_text, (10, 50))
+
+            # 绘制旗帜数量
+            flag_count_text = self._font.render(f"Flags: {self.flag_count}", True, BLACK)
+            self._surface.blit(flag_count_text, (10, 90))
         else:
             # 游戏结束状态，绘制结束界面
             self._draw_game_over_screen()
