@@ -15,24 +15,24 @@ def process_img(image):
     """处理图像为的二值图"""
     if isinstance(image, tuple):  # 如果是(obs, info)元组
         image = image[0]
-    image = cv2.resize(image, (128, 128))
+    image = cv2.resize(image, (84, 84))
     image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)  # 修改为RGB转灰度
     _, image = cv2.threshold(image, 230, 255, cv2.THRESH_BINARY)
     # image = image / 255.0  # 归一化到0-1
     # 显示image
     # cv2.imshow('Processed Frame', image)
-    cv2.imwrite('./results/processed_frame.png', image)  # 保存为图像文件
+    # cv2.imwrite('./results/processed_frame.png', image)  # 保存为图像文件
     return image
 
 class params():
     def __init__(self):
         self.gamma = 0.99
         self.action_dim = 3  # 3种动作
-        self.obs_dim = (4, 128, 128)  # 4帧堆叠
+        self.obs_dim = (4, 84, 84)  # 4帧堆叠
         self.capacity = 10000  # 增大经验池容量
-        self.cuda = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+        self.cuda = 'cuda:4' if torch.cuda.is_available() else 'cpu'
         self.Frames = 4
-        self.episodes = int(1e2)  # 减少总幕数进行测试
+        self.episodes = int(1e3)  # 减少总幕数进行测试
         self.updatebatch = 512  # 增大批次大小
         self.test_episodes = 10  # 减少测试幕数
         self.epsilon = 0.001  # 初始探索率
@@ -448,7 +448,7 @@ def test_with_display(arg, agent, model_path=None):
 if __name__ == '__main__':
     # ==================== 配置区域====================
     AGENT_TYPE = "DQN"  # 可选: "DQN", "NoisyDQN"
-    MODEL_SAVE_PATH = f"models/ski_{AGENT_TYPE.lower()}_best_actionreward-slip.pkl"
+    MODEL_SAVE_PATH = f"models/ski_{AGENT_TYPE.lower()}_best.pkl"
     MODEL_FINAL_PATH = f"models/ski_{AGENT_TYPE.lower()}_final.pkl"
     REWARD_CURVE_PATH = f"results/reward_curve_{AGENT_TYPE.lower()}.jpg"
 
@@ -479,7 +479,7 @@ if __name__ == '__main__':
         print(f"🎬 开始演示 {AGENT_TYPE}...")
         env = make_skiing_env("Skiing-rgb-v0", render_mode="human", debug=True)
         agent = create_agent(env, arg, AGENT_TYPE)
-        demo_play(arg, agent, env, MODEL_FINAL_PATH)
+        demo_play(arg, agent, env, MODEL_SAVE_PATH)
 
     elif mode == "4":  # 人工游玩
         print("🎮 人工玩家模式...")

@@ -182,6 +182,9 @@ class SkiingRGBEnv(gymnasium.Env):
         # print("当前可执行动作单:", self._allowed_actions)
         is_valid_action = action in self._allowed_actions
         validity_penalty = 0.0
+
+        if action == Actions.KEEP_CURRENT:
+            reward += 0.2 # 连续保持滑行角度奖励
         
         if not is_valid_action:
             # 无效动作惩罚，并选择最接近的允许动作
@@ -189,7 +192,7 @@ class SkiingRGBEnv(gymnasium.Env):
             reward += validity_penalty
             action = Actions.KEEP_CURRENT
             # print(f"无效动作! 不执行，当前动作保持不变")
-
+        
         if action != Actions.KEEP_CURRENT:
             self._player_angle = self._angle_transition_map[self._player_angle][action]
             # print("动作后角度为：", self._player_angle)
